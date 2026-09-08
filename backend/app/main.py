@@ -4,7 +4,13 @@ from .settings import settings
 from .routers import auth, targets, headers, scans
 
 app = FastAPI(title="DadaDevourer API", version="0.2.0")
-app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(targets.router, prefix="/api/v1/targets", tags=["targets"])
 app.include_router(headers.router, prefix="/api/v1/scans/headers", tags=["headers"])
