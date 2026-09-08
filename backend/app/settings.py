@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     jwt_secret: str = "change-this-secret"
     jwt_expire_minutes: int = 60
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost"
     environment: str = "development"
 
     model_config = SettingsConfigDict(
