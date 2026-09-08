@@ -1,22 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { runHeadersScan, type ScannerFinding } from "./scanner";
-import { loadState, saveState, type TargetRecord, type ScanRecord, type FindingRecord } from "./storage";
+import { addFinding, addScan, addTarget, deleteTarget, initDatabase, listFindings, listScans, listTargets, updateScan, type TargetRecord, type ScanRecord, type FindingRecord } from "./db";
+import { checkForUpdate, openLatestRelease } from "./update";
 
-type ScanStatus = "queued" | "running" | "completed" | "failed";
-type Target = TargetRecord;
-type Finding = FindingRecord;
-type Scan = ScanRecord;
-
+type Target = TargetRecord & { id: number };
+type Scan = ScanRecord & { id: number };
+type Finding = FindingRecord & { id?: number };
 const sections = ["Dashboard", "Targets", "Scans", "Findings", "Reports", "Settings"];
 
 function isAllowedTarget(value: string) {
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol)) return false;
-    if (url.username || url.password) return false;
-    if (url.port && !["80", "443"].includes(url.port)) return false;
-    return Boolean(url.hostname);
-  } catch { return false; }
+  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && (!url.port || ["80", "443"].includes(url.port)) && Boolean(url.hostname); } catch { return false; }
 }
 
 export default function App() {
@@ -24,90 +18,63 @@ export default function App() {
   const [target, setTarget] = useState("");
   const [targets, setTargets] = useState<Target[]>([]);
   const [scans, setScans] = useState<Scan[]>([]);
+  const [findings, setFindings] = useState<Finding[]>([]);
   const [scopeConfirmed, setScopeConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [version, setVersion] = useState("0.1.0");
+  const [updateText, setUpdateText] = useState("");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
-  const findings = useMemo(() => scans.flatMap((scan) => scan.findings), [scans]);
+  const reload = async () => {
+    const [targetRows, scanRows] = await Promise.all([listTargets(), listScans()]);
+    setTargets(targetRows as Target[]); setScans(scanRows as Scan[]);
+    const rows = await Promise.all(scanRows.map((scan) => listFindings(scan.id!)));
+    setFindings(rows.flat() as Finding[]);
+  };
 
-  useEffect(() => {
-    let cancelled = false;
-    loadState().then((state) => {
-      if (cancelled) return;
-      setTargets(state.targets);
-      setScans(state.scans);
-      setLoaded(true);
-    });
-    return () => { cancelled = true; };
-  }, []);
+  useEffect(() => { Promise.all([initDatabase(), getVersion()]).then(async ([, v]) => { setVersion(v); await reload(); setLoaded(true); }).catch((e) => setError(e instanceof Error ? e.message : String(e))); }, []);
 
-  useEffect(() => {
-    if (!loaded) return;
-    void saveState({ targets, scans }).catch((storageError) => {
-      setError(storageError instanceof Error ? storageError.message : String(storageError));
-    });
-  }, [loaded, targets, scans]);
-
-  function addTarget() {
-    setError("");
-    const value = target.trim();
+  async function addNewTarget() {
+    setError(""); const value = target.trim();
     if (!scopeConfirmed) return setError("Confirm that you own or are authorized to test this target.");
     if (!isAllowedTarget(value)) return setError("Use a valid HTTP(S) target on port 80 or 443.");
-    if (!targets.some((item) => item.url === value)) {
-      setTargets((items) => [...items, { url: value, authorized: true, createdAt: new Date().toISOString() }]);
-    }
-    setTarget("");
-    setActive("Targets");
+    try { await addTarget({ url: value, authorized: true, createdAt: new Date().toISOString() }); await reload(); setTarget(""); setActive("Targets"); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }
 
-  async function startScan(value: string) {
-    setError("");
-    if (!scopeConfirmed) return setError("Authorization confirmation is required before scanning.");
-    const scanId = crypto.randomUUID();
-    const startedAt = new Date().toISOString();
-    const scan: Scan = { id: scanId, target: value, status: "running", findings: [], createdAt: startedAt, startedAt };
-    setScans((items) => [scan, ...items]);
-    setActive("Scans");
-    try {
+  async function startScan(value: string, targetId: number) {
+    setError(""); if (!scopeConfirmed) return setError("Authorization confirmation is required before scanning.");
+    const createdAt = new Date().toISOString(); let scanId: number;
+    try { scanId = await addScan({ targetId, status: "running", findingsCount: 0, createdAt, startedAt: createdAt }); await reload(); setActive("Scans");
       const result = await runHeadersScan(value);
-      const finishedAt = new Date().toISOString();
-      const normalized: Finding[] = result.findings.map((finding: ScannerFinding) => ({ ...finding, scanId, target: value }));
-      setScans((items) => items.map((item) => item.id === scanId ? {
-        ...item, status: "completed", findings: normalized, statusCode: result.status_code, finalUrl: result.url, finishedAt,
-      } : item));
-    } catch (scanError) {
-      const message = scanError instanceof Error ? scanError.message : String(scanError);
-      setScans((items) => items.map((item) => item.id === scanId ? { ...item, status: "failed", error: message, finishedAt: new Date().toISOString() } : item));
-      setError(message);
-    }
+      await updateScan(scanId, { status: "completed", findingsCount: result.findings.length, statusCode: result.status_code, finalUrl: result.url, finishedAt: new Date().toISOString() });
+      for (const finding of result.findings) await addFinding({ scanId, check: finding.check, severity: finding.severity, status: finding.status, value: finding.value });
+      await reload();
+    } catch (e) { const message = e instanceof Error ? e.message : String(e); if (scanId!) await updateScan(scanId, { status: "failed", error: message, finishedAt: new Date().toISOString() }); await reload(); setError(message); }
   }
 
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">DD</div><div><strong>DadaDevourer</strong><span>Security testing</span></div></div>
-        <nav>{sections.map((section) => <button key={section} className={active === section ? "nav-item active" : "nav-item"} onClick={() => { setError(""); setActive(section); }}>{section}</button>)}</nav>
-        <div className="scope-card"><span className="status-dot" /><div><b>Local scanner</b><small>Bundled Windows engine</small></div></div>
-      </aside>
-      <main className="content">
-        <header className="topbar"><div><span className="eyebrow">WORKSPACE</span><h1>{active}</h1></div><div className="connection"><span className="status-dot" /> Engine ready</div></header>
-        {error && <div className="error-banner">{error}</div>}
+  async function removeTarget(id: number) { try { await deleteTarget(id); await reload(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
 
-        {active === "Dashboard" && <>
-          <section className="hero"><div><span className="eyebrow">AUTHORIZED SECURITY TESTING</span><h2>Find security weaknesses before attackers do.</h2><p>Run authorized scans locally on Windows and keep your testing data under your control.</p></div><div className="hero-badge">Windows x64<br /><b>Desktop Edition</b></div></section>
-          <section className="stats"><article><span>Targets</span><b>{targets.length}</b><small>Persisted targets</small></article><article><span>Active scans</span><b>{scans.filter(s => s.status === "running").length}</b><small>Local scanner activity</small></article><article><span>Findings</span><b>{findings.length}</b><small>Persisted observations</small></article><article><span>Reports</span><b>0</b><small>Report engine next</small></article></section>
-          <section className="panel"><div className="panel-heading"><div><h3>Start an authorized test</h3><p>Add a system you own or have explicit permission to assess.</p></div><span className="safe-pill">SCOPE REQUIRED</span></div><div className="target-row"><input value={target} onChange={(e) => setTarget(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addTarget(); }} placeholder="https://example.com" /><button onClick={addTarget}>Add target</button></div><label className="scope-check"><input type="checkbox" checked={scopeConfirmed} onChange={(e) => setScopeConfirmed(e.target.checked)} /> I confirm I own this target or have explicit authorization to test it.</label></section>
-        </>}
+  async function checkUpdates() {
+    setCheckingUpdate(true); setUpdateText("");
+    try { const result = await checkForUpdate(version); setUpdateText(result.available ? `Update ${result.version} is available.` : `You are up to date (${version}).`); if (result.available) await openLatestRelease(); }
+    catch (e) { setUpdateText(`Update check failed: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setCheckingUpdate(false); }
+  }
 
-        {active === "Targets" && <section className="panel"><div className="panel-heading"><div><h3>Authorized targets</h3><p>Stored locally with authorization status.</p></div></div>{targets.length === 0 ? <div className="empty-state compact"><h2>No targets yet</h2><p>Add your first authorized HTTP(S) target from the dashboard.</p></div> : targets.map((item) => <div className="target-card" key={item.url}><div><b>{item.url}</b><small>HTTP(S) target • authorization recorded</small></div><button onClick={() => startScan(item.url)} disabled={scans.some((scan) => scan.target === item.url && scan.status === "running")}>{scans.some((scan) => scan.target === item.url && scan.status === "running") ? "Scanning…" : "Start headers scan"}</button></div>)}</section>}
+  const activeScans = useMemo(() => scans.filter(s => s.status === "running").length, [scans]);
+  if (!loaded) return <div className="loading-screen">Starting DadaDevourer…</div>;
 
-        {active === "Scans" && <section className="panel"><div className="panel-heading"><div><h3>Scan history</h3><p>Persisted local scanner lifecycle and results.</p></div></div>{scans.length === 0 ? <div className="empty-state compact"><h2>No scans yet</h2><p>Start a headers scan from Targets.</p></div> : scans.map((scan) => <div className="scan-card" key={scan.id}><div><b>{scan.target}</b><small>{new Date(scan.createdAt).toLocaleString()} • Headers scanner{scan.statusCode ? ` • HTTP ${scan.statusCode}` : ""}{scan.finalUrl && scan.finalUrl !== scan.target ? ` • ${scan.finalUrl}` : ""}</small>{scan.error && <small className="scan-error">{scan.error}</small>}</div><span className={`scan-status ${scan.status}`}>{scan.status}</span><strong>{scan.findings.length} findings</strong></div>)}</section>}
-
-        {active === "Findings" && <section className="panel"><div className="panel-heading"><div><h3>Findings</h3><p>Security header observations from the local engine.</p></div></div>{findings.length === 0 ? <div className="empty-state compact"><h2>No findings</h2><p>Completed scans will appear here.</p></div> : findings.map((finding, i) => <div className="finding-card" key={`${finding.scanId}-${finding.check}-${i}`}><div><b>{finding.check}</b><small>{finding.status}{finding.value ? ` • ${finding.value}` : ""}</small><small>{finding.target}</small></div><span>{finding.severity}</span></div>)}</section>}
-
-        {active === "Reports" && <section className="panel empty-state"><div className="empty-icon">R</div><h2>Reports</h2><p>Report generation will use persisted scan and finding data.</p></section>}
-        {active === "Settings" && <section className="panel"><div className="panel-heading"><div><h3>Application settings</h3><p>Desktop-first configuration.</p></div></div><div className="settings-row"><b>Scanner mode</b><span>Bundled local Windows engine</span></div><div className="settings-row"><b>Target policy</b><span>HTTP(S), ports 80/443, explicit authorization</span></div><div className="settings-row"><b>Data storage</b><span>Persistent Tauri application store</span></div><div className="settings-row"><b>Cloud sync</b><span>Optional — not required for local testing</span></div></section>}
-      </main>
-    </div>
-  );
+  return <div className="app-shell">
+    <aside className="sidebar"><div className="brand"><div className="brand-mark">DD</div><div><strong>DadaDevourer</strong><span>Security testing</span></div></div><nav>{sections.map(s => <button key={s} className={active === s ? "nav-item active" : "nav-item"} onClick={() => { setError(""); setActive(s); }}>{s}</button>)}</nav><div className="scope-card"><span className="status-dot" /><div><b>Local scanner</b><small>Bundled Windows engine</small></div></div></aside>
+    <main className="content"><header className="topbar"><div><span className="eyebrow">WORKSPACE</span><h1>{active}</h1></div><div className="connection"><span className="status-dot" /> Engine ready <button className="update-button" onClick={checkUpdates} disabled={checkingUpdate}>{checkingUpdate ? "Checking…" : "Check for updates"}</button></div></header>
+      {error && <div className="error-banner">{error}</div>}
+      {updateText && <div className="info-banner">{updateText}</div>}
+      {active === "Dashboard" && <><section className="hero"><div><span className="eyebrow">AUTHORIZED SECURITY TESTING</span><h2>Find security weaknesses before attackers do.</h2><p>Run authorized scans locally on Windows and keep your testing data under your control.</p></div><div className="hero-badge">Windows x64<br /><b>Desktop Edition</b><small>v{version}</small></div></section><section className="stats"><article><span>Targets</span><b>{targets.length}</b><small>SQLite targets</small></article><article><span>Active scans</span><b>{activeScans}</b><small>Local scanner activity</small></article><article><span>Findings</span><b>{findings.length}</b><small>SQLite findings</small></article><article><span>Reports</span><b>0</b><small>Report engine next</small></article></section><section className="panel"><div className="panel-heading"><div><h3>Start an authorized test</h3><p>Add a system you own or have explicit permission to assess.</p></div><span className="safe-pill">SCOPE REQUIRED</span></div><div className="target-row"><input value={target} onChange={e => setTarget(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addNewTarget(); }} placeholder="https://example.com" /><button onClick={() => void addNewTarget()}>Add target</button></div><label className="scope-check"><input type="checkbox" checked={scopeConfirmed} onChange={e => setScopeConfirmed(e.target.checked)} /> I confirm I own this target or have explicit authorization to test it.</label></section></>}
+      {active === "Targets" && <section className="panel"><div className="panel-heading"><div><h3>Authorized targets</h3><p>Stored in the local SQLite database.</p></div></div>{targets.length === 0 ? <div className="empty-state compact"><h2>No targets yet</h2><p>Add your first authorized HTTP(S) target from the dashboard.</p></div> : targets.map(t => <div className="target-card" key={t.id}><div><b>{t.url}</b><small>Authorization recorded • SQLite</small></div><div><button onClick={() => void startScan(t.url, t.id)} disabled={scans.some(s => s.targetId === t.id && s.status === "running")}>Start headers scan</button><button className="danger-button" onClick={() => void removeTarget(t.id)}>Delete</button></div></div>)}</section>}
+      {active === "Scans" && <section className="panel"><div className="panel-heading"><div><h3>Scan history</h3><p>Persistent local scanner lifecycle and results.</p></div></div>{scans.length === 0 ? <div className="empty-state compact"><h2>No scans yet</h2><p>Start a headers scan from Targets.</p></div> : scans.map(s => <div className="scan-card" key={s.id}><div><b>{targets.find(t => t.id === s.targetId)?.url || `Target #${s.targetId}`}</b><small>{new Date(s.createdAt).toLocaleString()} • Headers scanner{s.statusCode ? ` • HTTP ${s.statusCode}` : ""}{s.finalUrl ? ` • ${s.finalUrl}` : ""}</small>{s.error && <small className="scan-error">{s.error}</small>}</div><span className={`scan-status ${s.status}`}>{s.status}</span><strong>{s.findingsCount} findings</strong></div>)}</section>}
+      {active === "Findings" && <section className="panel"><div className="panel-heading"><div><h3>Findings</h3><p>Security header observations stored in SQLite.</p></div></div>{findings.length === 0 ? <div className="empty-state compact"><h2>No findings</h2><p>Completed scans will appear here.</p></div> : findings.map((f, i) => <div className="finding-card" key={`${f.id ?? f.scanId}-${i}`}><div><b>{f.check}</b><small>{f.status}{f.value ? ` • ${f.value}` : ""}</small><small>{targets.find(t => t.id === scans.find(s => s.id === f.scanId)?.targetId)?.url || ""}</small></div><span>{f.severity}</span></div>)}</section>}
+      {active === "Reports" && <section className="panel empty-state"><div className="empty-icon">R</div><h2>Reports</h2><p>Report generation will use persisted scan and finding data.</p></section>}
+      {active === "Settings" && <section className="panel"><div className="panel-heading"><div><h3>Application settings</h3><p>DadaDevourer Desktop v{version}</p></div></div><div className="settings-row"><b>Scanner mode</b><span>Bundled local Windows x64 engine</span></div><div className="settings-row"><b>Data storage</b><span>Native SQLite database</span></div><div className="settings-row"><b>Updates</b><span>Check the GitHub release channel from the button in the top bar.</span></div><div className="settings-row"><b>Cloud sync</b><span>Optional — not required for local testing</span></div></section>}
+    </main></div>;
 }
