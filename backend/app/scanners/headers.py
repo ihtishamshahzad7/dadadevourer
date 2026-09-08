@@ -1,6 +1,7 @@
 import ipaddress
 import socket
 from urllib.parse import urlparse
+
 import httpx
 
 REQUIRED = {
@@ -12,23 +13,72 @@ REQUIRED = {
     "permissions-policy": "Low",
 }
 
+ALLOWED_PORTS = {80, 443}
+
+
 def is_public_host(hostname: str) -> bool:
     try:
-        infos = socket.getaddrinfo(hostname, None)
+        infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        if not infos:
+            return False
         for info in infos:
             address = ipaddress.ip_address(info[4][0])
-            if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved:
+            if (
+                address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_reserved
+                or address.is_multicast
+                or address.is_unspecified
+            ):
                 return False
         return True
     except (ValueError, socket.gaierror):
         return False
 
-async def run(url: str) -> dict:
+
+def validate_target_url(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or not is_public_host(parsed.hostname):
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Only HTTP(S) targets are allowed")
+    if parsed.username or parsed.password:
+        raise ValueError("Target URLs must not contain credentials")
+    if parsed.port and parsed.port not in ALLOWED_PORTS:
+        raise ValueError("Only ports 80 and 443 are allowed")
+    if not is_public_host(parsed.hostname):
         raise ValueError("Only publicly routable HTTP(S) targets are allowed")
-    async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
-        response = await client.get(url)
+
+
+async def run(url: str) -> dict:
+    validate_target_url(url)
+    current_url = url
+    timeout = httpx.Timeout(10.0, connect=5.0)
+
+    async with httpx.AsyncClient(follow_redirects=False, timeout=timeout) as client:
+        for _ in range(5):
+            validate_target_url(current_url)
+            response = await client.get(current_url)
+            if response.status_code not in {301, 302, 303, 307, 308}:
+                break
+            location = response.headers.get("location")
+            if not location:
+                break
+            current_url = str(response.url.join(location))
+        else:
+            raise ValueError("Too many redirects")
+
     headers = {k.lower(): v for k, v in response.headers.items()}
-    findings = [{"check": header, "severity": severity, "status": "present" if header in headers else "missing", "value": headers.get(header)} for header, severity in REQUIRED.items()]
-    return {"url": str(response.url), "status_code": response.status_code, "findings": findings}
+    findings = [
+        {
+            "check": header,
+            "severity": severity,
+            "status": "present" if header in headers else "missing",
+            "value": headers.get(header),
+        }
+        for header, severity in REQUIRED.items()
+    ]
+    return {
+        "url": str(response.url),
+        "status_code": response.status_code,
+        "findings": findings,
+    }
