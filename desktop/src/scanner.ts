@@ -1,4 +1,4 @@
-import { Command, type Child } from "@tauri-apps/plugin-shell";
+import { Command } from "@tauri-apps/plugin-shell";
 
 export type ScannerFinding = {
   check: string;
@@ -29,7 +29,6 @@ function parseMessage(line: string): ScannerMessage {
   } catch {
     throw new Error("Scanner returned invalid JSON");
   }
-
   if (!message || typeof message !== "object") {
     throw new Error("Scanner returned an invalid message");
   }
@@ -39,8 +38,8 @@ function parseMessage(line: string): ScannerMessage {
 export async function runHeadersScan(target: string): Promise<HeaderScanResult> {
   const id = crypto.randomUUID();
   const command = Command.sidecar(SIDE_CAR);
-  let child: Child | undefined;
   let settled = false;
+  let stdoutBuffer = "";
 
   return new Promise<HeaderScanResult>(async (resolve, reject) => {
     const finishError = (error: Error) => {
@@ -48,7 +47,6 @@ export async function runHeadersScan(target: string): Promise<HeaderScanResult> 
       settled = true;
       reject(error);
     };
-
     const finishSuccess = (result: HeaderScanResult) => {
       if (settled) return;
       settled = true;
@@ -56,8 +54,10 @@ export async function runHeadersScan(target: string): Promise<HeaderScanResult> 
     };
 
     command.stdout.on("data", (chunk) => {
-      const lines = String(chunk).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      for (const line of lines) {
+      stdoutBuffer += String(chunk);
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines.map((item) => item.trim()).filter(Boolean)) {
         try {
           const message = parseMessage(line);
           if (message.id !== id) continue;
@@ -76,10 +76,7 @@ export async function runHeadersScan(target: string): Promise<HeaderScanResult> 
       console.warn("DadaDevourer scanner:", String(chunk));
     });
 
-    command.on("error", (error) => {
-      finishError(new Error(String(error)));
-    });
-
+    command.on("error", (error) => finishError(new Error(String(error))));
     command.on("close", ({ code, signal }) => {
       if (!settled) {
         finishError(new Error(`Scanner exited before returning a result (code=${code ?? "unknown"}, signal=${signal ?? "none"})`));
@@ -87,7 +84,7 @@ export async function runHeadersScan(target: string): Promise<HeaderScanResult> 
     });
 
     try {
-      child = await command.spawn();
+      const child = await command.spawn();
       await child.write(`${JSON.stringify({ id, command: "headers_scan", target })}\n`);
     } catch (error) {
       finishError(error instanceof Error ? error : new Error(String(error)));
