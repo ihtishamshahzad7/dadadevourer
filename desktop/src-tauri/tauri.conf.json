@@ -10,30 +10,20 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "DadaDevourer",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 980,
-        "minHeight": 650,
-        "resizable": true,
-        "fullscreen": false
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000"
-    }
+    "windows": [{"title":"DadaDevourer","width":1280,"height":800,"minWidth":980,"minHeight":650,"resizable":true,"fullscreen":false}],
+    "security": {"csp":"default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 https://github.com https://api.github.com"}
   },
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
     "externalBin": ["binaries/dadadevourer-scanner"],
-    "windows": {
-      "nsis": {
-        "installMode": "perMachine",
-        "displayLanguageSelector": true
-      }
+    "windows": {"nsis":{"installMode":"perMachine","displayLanguageSelector":true}}
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": ["https://github.com/ihtishamshahzad7/dadadevourer/releases/latest/download/latest.json"],
+      "dangerousInsecureTransportProtocol": false
     }
   }
 }
