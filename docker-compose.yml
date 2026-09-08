@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://dadadevourer:${POSTGRES_PASSWORD:-change-me-in-production}@db:5432/dadadevourer
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET: ${JWT_SECRET:-change-this-secret}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost}
     depends_on:
       db:
         condition: service_healthy
