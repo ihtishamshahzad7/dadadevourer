@@ -1,31 +1,43 @@
 # DadaDevourer Desktop
 
-The primary DadaDevourer client is a native Windows x64 application built with Tauri 2 and React/TypeScript.
-
-## Development
-
-From this directory:
-
-```powershell
-npm install
-npm run tauri:dev
-```
-
-The desktop client currently provides the application shell and workspace UI. The next integration stage connects authentication, the local scanner service, persistent scan state, and the existing FastAPI scanner API.
-
-## Windows installer
-
-```powershell
-npm install
-npm run tauri:build
-```
-
-Tauri is configured to produce both an NSIS installer and an MSI package for Windows.
+DadaDevourer is a Windows-first authorized security testing application. The desktop shell is built with Tauri and React, while scanning runs in a bundled Python sidecar process.
 
 ## Architecture
 
-- `src/` — desktop UI
-- `src-tauri/` — native Windows runtime and installer configuration
-- `../backend/` — FastAPI API and security scanner services
+```text
+DadaDevourer.exe
+  ├─ Tauri + React UI
+  ├─ local application state
+  └─ dadadevourer-scanner.exe
+       └─ JSON Lines stdin/stdout protocol
+            └─ Headers scanner
+```
 
-The application is intended for systems the operator owns or has explicit authorization to assess.
+The scanner is intentionally restricted to HTTP(S) targets on ports 80/443 and rejects non-publicly-routable addresses. Use it only against systems you own or are explicitly authorized to test.
+
+## Development
+
+```powershell
+cd desktop
+npm install
+npm run dev
+```
+
+For the full Tauri desktop shell, install the Rust/Tauri prerequisites and run:
+
+```powershell
+npm run tauri:dev
+```
+
+## Windows x64 installer
+
+The repository includes `scripts/build-windows.ps1`. On a Windows build machine with Python 3, Node.js/npm, Rust/Cargo and the Tauri prerequisites installed:
+
+```powershell
+cd desktop
+.\scripts\build-windows.ps1
+```
+
+The script builds the Python scanner with PyInstaller, places the target-specific sidecar under `src-tauri/binaries/`, builds the Tauri application, and produces NSIS/MSI installers under `src-tauri/target/release/bundle/`.
+
+Do not commit the generated `.exe` sidecar to source control; CI/release builds should generate it as part of the build pipeline.
