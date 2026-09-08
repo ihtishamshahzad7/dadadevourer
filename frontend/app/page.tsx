@@ -16,6 +16,7 @@ export default function Home() {
   const [selected, setSelected] = useState<ScanDetail | null>(null);
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -26,10 +27,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!localStorage.getItem("access_token")) {
-      router.replace("/login");
-      return;
-    }
+    if (!localStorage.getItem("access_token")) { router.replace("/login"); return; }
     loadDashboard();
   }, [loadDashboard, router]);
 
@@ -40,48 +38,67 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [scans, loadDashboard]);
 
-  async function addTarget(event: FormEvent) {
+  function startEdit(target: Target) {
+    setEditingId(target.id);
+    setName(target.name || "");
+    setUrl(target.url);
+    setMessage("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setName("");
+    setUrl("");
+    setMessage("");
+  }
+
+  async function saveTarget(event: FormEvent) {
     event.preventDefault();
     if (!url.trim()) return;
-    setBusy(true);
-    setMessage("");
+    setBusy(true); setMessage("");
     try {
-      const response = await api("/targets", {
-        method: "POST",
+      const response = await api(editingId ? `/targets/${editingId}` : "/targets", {
+        method: editingId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim(), name: name.trim() || null }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Unable to add target");
-      setUrl("");
-      setName("");
-      setMessage("Target added successfully.");
+      if (!response.ok) throw new Error(data.detail || "Unable to save target");
+      setMessage(editingId ? "Target updated successfully." : "Target added successfully.");
+      cancelEdit();
       await loadDashboard();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to add target");
-    } finally {
-      setBusy(false);
-    }
+      setMessage(error instanceof Error ? error.message : "Unable to save target");
+    } finally { setBusy(false); }
+  }
+
+  async function deleteTarget(target: Target) {
+    if (!window.confirm(`Delete ${target.name || target.url}? Existing scans and findings for this target will also be removed.`)) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await api(`/targets/${target.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || "Unable to delete target");
+      }
+      setMessage("Target deleted.");
+      if (editingId === target.id) cancelEdit();
+      if (selected?.target_id === target.id) setSelected(null);
+      await loadDashboard();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete target");
+    } finally { setBusy(false); }
   }
 
   async function runHeaderScan(targetId: number) {
-    setBusy(true);
-    setMessage("");
+    setBusy(true); setMessage("");
     try {
-      const response = await api("/scans/headers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_id: targetId }),
-      });
+      const response = await api("/scans/headers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target_id: targetId }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Unable to start scan");
-      setMessage(`Header scan #${data.id} queued.`);
-      await loadDashboard();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to start scan");
-    } finally {
-      setBusy(false);
-    }
+      setMessage(`Header scan #${data.id} queued.`); await loadDashboard();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to start scan"); }
+    finally { setBusy(false); }
   }
 
   async function viewScan(scanId: number) {
@@ -89,10 +106,7 @@ export default function Home() {
     if (response.ok) setSelected(await response.json());
   }
 
-  function signOut() {
-    localStorage.removeItem("access_token");
-    router.replace("/login");
-  }
+  function signOut() { localStorage.removeItem("access_token"); router.replace("/login"); }
 
   const activeCount = scans.filter((s) => ["queued", "running"].includes(s.status)).length;
   const completedCount = scans.filter((s) => s.status === "completed").length;
@@ -105,24 +119,23 @@ export default function Home() {
       </header>
 
       <section style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
-        {[['Targets', targets.length], ['Active scans', activeCount], ['Completed scans', completedCount]].map(([label, value]) => (
-          <div key={String(label)} style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 18, background: "#fafafa" }}><div style={{ color: "#666", fontSize: 13 }}>{label}</div><div style={{ fontSize: 28, fontWeight: 700, marginTop: 5 }}>{value}</div></div>
-        ))}
+        {[['Targets', targets.length], ['Active scans', activeCount], ['Completed scans', completedCount]].map(([label, value]) => <div key={String(label)} style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 18, background: "#fafafa" }}><div style={{ color: "#666", fontSize: 13 }}>{label}</div><div style={{ fontSize: 28, fontWeight: 700, marginTop: 5 }}>{value}</div></div>)}
       </section>
 
       <section style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 20, marginBottom: 24 }}>
-        <h2 style={{ marginTop: 0 }}>Add authorized target</h2>
-        <form onSubmit={addTarget} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Target name (optional)" style={{ padding: 11, border: "1px solid #ccc", borderRadius: 8 }} />
+        <h2 style={{ marginTop: 0 }}>{editingId ? "Edit target" : "Add authorized target"}</h2>
+        <form onSubmit={saveTarget} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10 }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200} placeholder="Target name (optional)" style={{ padding: 11, border: "1px solid #ccc", borderRadius: 8 }} />
           <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" type="url" required style={{ padding: 11, border: "1px solid #ccc", borderRadius: 8 }} />
-          <button disabled={busy} type="submit" style={{ padding: "11px 18px", border: 0, borderRadius: 8, cursor: "pointer" }}>Add target</button>
+          <button disabled={busy} type="submit" style={{ padding: "11px 18px", border: 0, borderRadius: 8, cursor: "pointer" }}>{editingId ? "Save changes" : "Add target"}</button>
         </form>
+        {editingId && <button disabled={busy} onClick={cancelEdit} style={{ marginTop: 10, padding: "8px 12px", borderRadius: 7, border: "1px solid #bbb", background: "white", cursor: "pointer" }}>Cancel edit</button>}
         {message && <p style={{ marginBottom: 0, color: "#555" }}>{message}</p>}
       </section>
 
       <section style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 20, marginBottom: 24, overflowX: "auto" }}>
         <h2 style={{ marginTop: 0 }}>Targets</h2>
-        {targets.length === 0 ? <p style={{ color: "#777" }}>No targets yet. Add an authorized target above.</p> : <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th align="left">Name</th><th align="left">URL</th><th align="right">Action</th></tr></thead><tbody>{targets.map((target) => <tr key={target.id} style={{ borderTop: "1px solid #eee" }}><td style={{ padding: "12px 4px" }}>{target.name || "Unnamed target"}</td><td style={{ padding: "12px 4px", wordBreak: "break-all" }}>{target.url}</td><td align="right"><button disabled={busy} onClick={() => runHeaderScan(target.id)} style={{ padding: "8px 12px", borderRadius: 7, border: "1px solid #bbb", background: "white", cursor: "pointer" }}>Header scan</button></td></tr>)}</tbody></table>}
+        {targets.length === 0 ? <p style={{ color: "#777" }}>No targets yet. Add an authorized target above.</p> : <table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr><th align="left">Name</th><th align="left">URL</th><th align="right">Actions</th></tr></thead><tbody>{targets.map((target) => <tr key={target.id} style={{ borderTop: "1px solid #eee" }}><td style={{ padding: "12px 4px" }}>{target.name || "Unnamed target"}</td><td style={{ padding: "12px 4px", wordBreak: "break-all" }}>{target.url}</td><td align="right" style={{ whiteSpace: "nowrap" }}><button disabled={busy} onClick={() => runHeaderScan(target.id)} style={{ padding: "8px 12px", borderRadius: 7, border: "1px solid #bbb", background: "white", cursor: "pointer", marginLeft: 6 }}>Header scan</button><button disabled={busy} onClick={() => startEdit(target)} style={{ padding: "8px 12px", borderRadius: 7, border: "1px solid #bbb", background: "white", cursor: "pointer", marginLeft: 6 }}>Edit</button><button disabled={busy} onClick={() => deleteTarget(target)} style={{ padding: "8px 12px", borderRadius: 7, border: "1px solid #bbb", background: "white", cursor: "pointer", marginLeft: 6 }}>Delete</button></td></tr>)}</tbody></table>}
       </section>
 
       <section style={{ border: "1px solid #e5e5e5", borderRadius: 12, padding: 20, overflowX: "auto" }}>
