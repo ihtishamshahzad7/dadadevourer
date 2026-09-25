@@ -30,6 +30,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - name: Set build version and updater signing mode
+        id: signing
         shell: pwsh
         env:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
@@ -45,11 +46,13 @@ jobs:
             $config.bundle.createUpdaterArtifacts = $true
             $config.plugins.updater.pubkey = $env:TAURI_UPDATER_PUBLIC_KEY
             "SIGNED_BUILD=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "signed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host "Signed updater artifacts enabled."
           } else {
             $config.bundle.createUpdaterArtifacts = $false
             $config.plugins.updater.pubkey = ""
             "SIGNED_BUILD=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "signed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
             Write-Host "Signing secrets are not configured; building installers without updater artifacts."
           }
           $config | ConvertTo-Json -Depth 20 | Set-Content desktop/src-tauri/tauri.conf.json
@@ -69,7 +72,8 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install
-      - name: Build and publish Tauri release
+      - name: Build and publish signed Tauri release
+        if: steps.signing.outputs.signed == 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,7 +84,21 @@ jobs:
           tagName: v0.1.${{ github.run_number }}
           releaseName: DadaDevourer Desktop v0.1.${{ github.run_number }}
           generateReleaseNotes: true
-          uploadUpdaterJson: ${{ env.SIGNED_BUILD == 'true' }}
-          uploadUpdaterSignatures: ${{ env.SIGNED_BUILD == 'true' }}
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
+          uploadWorkflowArtifacts: true
+
+      - name: Build and publish unsigned Tauri release
+        if: steps.signing.outputs.signed != 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: v0.1.${{ github.run_number }}
+          releaseName: DadaDevourer Desktop v0.1.${{ github.run_number }}
+          generateReleaseNotes: true
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
           uploadWorkflowArtifacts: true
