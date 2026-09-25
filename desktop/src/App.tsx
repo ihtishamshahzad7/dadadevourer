@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { runHeadersScan, type ScannerFinding } from "./scanner";
 import { addFinding, addScan, addTarget, deleteTarget, initDatabase, listFindings, listScans, listTargets, updateScan, type TargetRecord, type ScanRecord, type FindingRecord } from "./db";
-import { checkForUpdate, openLatestRelease } from "./update";
+import { checkForUpdate, restartAfterUpdate, type UpdateProgress } from "./update";
 
 type Target = TargetRecord & { id: number };
 type Scan = ScanRecord & { id: number };
@@ -56,10 +56,29 @@ export default function App() {
   async function removeTarget(id: number) { try { await deleteTarget(id); await reload(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
 
   async function checkUpdates() {
-    setCheckingUpdate(true); setUpdateText("");
-    try { const result = await checkForUpdate(version); setUpdateText(result.available ? `Update ${result.version} is available.` : `You are up to date (${version}).`); if (result.available) await openLatestRelease(); }
-    catch (e) { setUpdateText(`Update check failed: ${e instanceof Error ? e.message : String(e)}`); }
-    finally { setCheckingUpdate(false); }
+    setCheckingUpdate(true); setUpdateText("Checking for a signed update…");
+    try {
+      const result = await checkForUpdate((progress: UpdateProgress) => {
+        if (progress.event === "Started") {
+          setUpdateText(progress.contentLength ? `Downloading update… 0 / ${Math.round(progress.contentLength / 1024 / 1024)} MB` : "Downloading update…");
+        } else if (progress.event === "Progress") {
+          const total = progress.contentLength;
+          setUpdateText(total ? `Downloading update… ${Math.round((progress.downloaded / total) * 100)}%` : `Downloading update… ${Math.round(progress.downloaded / 1024)} KB`);
+        } else {
+          setUpdateText("Installing update…");
+        }
+      });
+      if (!result) {
+        setUpdateText(`You are up to date (${version}).`);
+        return;
+      }
+      setUpdateText(`Update ${result.version} installed. Restarting…`);
+      await restartAfterUpdate();
+    } catch (e) {
+      setUpdateText(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCheckingUpdate(false);
+    }
   }
 
   const activeScans = useMemo(() => scans.filter(s => s.status === "running").length, [scans]);
