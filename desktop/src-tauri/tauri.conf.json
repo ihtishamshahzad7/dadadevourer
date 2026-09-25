@@ -16,6 +16,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": false,
     "externalBin": ["binaries/dadadevourer-scanner"],
     "windows": {"nsis":{"installMode":"perMachine","displayLanguageSelector":true}}
   },
