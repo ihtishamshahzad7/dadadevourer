@@ -29,8 +29,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-      - name: Set build version
+      - name: Set build version and updater signing mode
         shell: pwsh
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           $version = "0.1.${{ github.run_number }}"
           $package = Get-Content desktop/package.json -Raw | ConvertFrom-Json
@@ -38,6 +41,17 @@ jobs:
           $package | ConvertTo-Json -Depth 20 | Set-Content desktop/package.json
           $config = Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $config.version = $version
+          if ($env:TAURI_UPDATER_PUBLIC_KEY -and $env:TAURI_SIGNING_PRIVATE_KEY) {
+            $config.bundle.createUpdaterArtifacts = $true
+            $config.plugins.updater.pubkey = $env:TAURI_UPDATER_PUBLIC_KEY
+            "SIGNED_BUILD=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Signed updater artifacts enabled."
+          } else {
+            $config.bundle.createUpdaterArtifacts = $false
+            $config.plugins.updater.pubkey = ""
+            "SIGNED_BUILD=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Signing secrets are not configured; building installers without updater artifacts."
+          }
           $config | ConvertTo-Json -Depth 20 | Set-Content desktop/src-tauri/tauri.conf.json
       - name: Install scanner dependencies
         working-directory: desktop/engine
@@ -55,25 +69,18 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install
-      - name: Build Tauri installers
-        working-directory: desktop
-        run: npm run tauri:build
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+      - name: Build and publish Tauri release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tag_name: v0.1.${{ github.run_number }}
-          name: DadaDevourer Desktop v0.1.${{ github.run_number }}
-          generate_release_notes: true
-          files: |
-            desktop/src-tauri/target/release/bundle/nsis/*.exe
-            desktop/src-tauri/target/release/bundle/msi/*.msi
-      - name: Upload NSIS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DadaDevourer-Windows-x64-NSIS
-          path: desktop/src-tauri/target/release/bundle/nsis/*.exe
-      - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DadaDevourer-Windows-x64-MSI
-          path: desktop/src-tauri/target/release/bundle/msi/*.msi
+          projectPath: desktop
+          tagName: v0.1.${{ github.run_number }}
+          releaseName: DadaDevourer Desktop v0.1.${{ github.run_number }}
+          generateReleaseNotes: true
+          uploadUpdaterJson: ${{ env.SIGNED_BUILD == 'true' }}
+          uploadUpdaterSignatures: ${{ env.SIGNED_BUILD == 'true' }}
+          updaterJsonPreferNsis: true
+          uploadWorkflowArtifacts: true
