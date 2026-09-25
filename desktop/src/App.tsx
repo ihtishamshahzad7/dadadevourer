@@ -44,13 +44,13 @@ export default function App() {
 
   async function startScan(value: string, targetId: number) {
     setError(""); if (!scopeConfirmed) return setError("Authorization confirmation is required before scanning.");
-    const createdAt = new Date().toISOString(); let scanId: number;
+    const createdAt = new Date().toISOString(); let scanId: number | undefined;
     try { scanId = await addScan({ targetId, status: "running", findingsCount: 0, createdAt, startedAt: createdAt }); await reload(); setActive("Scans");
       const result = await runHeadersScan(value);
       await updateScan(scanId, { status: "completed", findingsCount: result.findings.length, statusCode: result.status_code, finalUrl: result.url, finishedAt: new Date().toISOString() });
       for (const finding of result.findings) await addFinding({ scanId, check: finding.check, severity: finding.severity, status: finding.status, value: finding.value });
       await reload();
-    } catch (e) { const message = e instanceof Error ? e.message : String(e); if (scanId!) await updateScan(scanId, { status: "failed", error: message, finishedAt: new Date().toISOString() }); await reload(); setError(message); }
+    } catch (e) { const message = e instanceof Error ? e.message : String(e); if (scanId !== undefined) await updateScan(scanId, { status: "failed", error: message, finishedAt: new Date().toISOString() }); await reload(); setError(message); }
   }
 
   async function removeTarget(id: number) { try { await deleteTarget(id); await reload(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
