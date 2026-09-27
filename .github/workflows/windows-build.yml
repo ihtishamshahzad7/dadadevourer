@@ -72,6 +72,9 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install
+      - name: Generate Windows application icons
+        working-directory: desktop
+        run: npm run icons
       - name: Build and publish signed Tauri release
         if: steps.signing.outputs.signed == 'true'
         uses: tauri-apps/tauri-action@v1
