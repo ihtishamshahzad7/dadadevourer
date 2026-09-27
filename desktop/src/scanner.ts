@@ -20,7 +20,7 @@ export async function runScan(target:string,module:ScanModule="assessment",timeo
   const id=crypto.randomUUID(); const command=Command.sidecar(SIDE_CAR); let settled=false; let buffer="";
   const commandName=module==="headers"?"headers_scan":module==="tls"?"tls_scan":module==="technology"?"tech_scan":"assessment_scan";
   return new Promise<ScanResult>(async(resolve,reject)=>{
-    let child:{kill:()=>Promise<void>}|undefined;
+    let child:{kill:()=>Promise<void>;write:(data:string)=>Promise<void>}|undefined;
     const timer=window.setTimeout(()=>{void child?.kill().catch(()=>undefined);finishError(new Error("Scanner timed out. The scan was stopped by the desktop safety timeout."));},timeoutMs);
     const finishError=(error:Error)=>{if(settled)return;settled=true;window.clearTimeout(timer);reject(error)};
     const finishSuccess=(result:ScanResult)=>{if(settled)return;settled=true;window.clearTimeout(timer);resolve(result)};
