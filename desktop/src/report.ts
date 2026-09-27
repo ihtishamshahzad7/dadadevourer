@@ -110,7 +110,7 @@ export function buildAssessmentReport(
     ".sub{color:#718099;font-size:9px;margin-top:4px}.empty{text-align:center;color:#718099;padding:25px}" +
     "footer{padding:16px 32px;border-top:1px solid #e3e7ef;color:#7a869a;font-size:10px}" +
     "@media print{body{padding:0;background:#fff}.report{border:0}.actions{display:none}}"+
-    "</style></head><body><article class="report"><header><div class="brand">DadaDevourer • Authorized Testing</div>" +
+    '</style></head><body><article class="report"><header><div class="brand">DadaDevourer • Authorized Testing</div>' +
     '<h1 class="title">Security Assessment Report</h1><div class="muted">Generated locally from a completed authorized assessment.</div>' +
     '<div class="actions"><button onclick="window.print()">Print / Save as PDF</button></div></header><main>' +
     '<div class="meta"><div><span>Project</span><strong>' +
