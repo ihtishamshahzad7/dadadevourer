@@ -23,7 +23,7 @@ Current desktop capabilities:
 - Report history
 - Local audit trail
 - GitHub updater foundation
-- Windows x64 NSIS/MSI packaging
+- Windows x64 NSIS packaging
 
 Use only against systems you own or have explicit permission to assess. The scanner uses controlled HTTP(S)/TLS observations and does not provide credential stuffing, stealth/evasion, destructive exploitation, or mass public scanning.
 
@@ -54,9 +54,8 @@ cd desktop
 
 Installers are produced under:
 
-```
+```text
 desktop/src-tauri/target/release/bundle/nsis/
-desktop/src-tauri/target/release/bundle/msi/
 ```
 
 Generated installers and scanner binaries should not be committed to source control.
@@ -77,7 +76,7 @@ cd desktop\scripts
 update-latest.cmd
 ```
 
-The scripts query only the latest release of this repository and select a Windows installer asset. Application data is kept in the Tauri/SQLite application-data location and is not intentionally removed by an installer upgrade.
+The scripts query only the latest GitHub release of this repository and select the Windows NSIS `.exe` installer asset. NSIS is the supported Windows installer format in the release pipeline. Application data is kept in the Tauri/SQLite application-data location and is not intentionally removed by an installer upgrade.
 
 ## Safe push workflow
 
