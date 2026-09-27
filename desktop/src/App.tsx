@@ -1,111 +1,76 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { runHeadersScan } from "./scanner";
-import { addFinding, addScan, addTarget, deleteTarget, initDatabase, listFindings, listScans, listTargets, updateScan, type TargetRecord, type ScanRecord, type FindingRecord } from "./db";
-import { checkForUpdate, restartAfterUpdate, type UpdateProgress } from "./update";
+import {
+  addFinding, addProject, addReport, addScan, addTarget, deleteProject, deleteTarget,
+  initDatabase, listAudit, listFindings, listProjects, listReports, listScans, listTargets,
+  updateFinding, updateProject, type AuditRecord, type FindingRecord, type ProjectRecord,
+  type ReportRecord, type ScanRecord, type TargetRecord
+} from "./db";
+import { runScan, type ScanModule, type ScannerFinding } from "./scanner";
 import { buildAssessmentReport, openAssessmentReport } from "./report";
+import { checkForUpdate, restartAfterUpdate, type UpdateProgress } from "./update";
 
-type Target = TargetRecord & { id: number };
-type Scan = ScanRecord & { id: number };
-type Finding = FindingRecord & { id?: number };
-const sections = ["Dashboard", "Targets", "Scans", "Findings", "Reports", "Settings"];
+type Project=ProjectRecord&{id:number}; type Target=TargetRecord&{id:number}; type Scan=ScanRecord&{id:number}; type Finding=FindingRecord&{id:number};
 
-function isAllowedTarget(value: string) {
-  try { const url = new URL(value); return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && (!url.port || ["80", "443"].includes(url.port)) && Boolean(url.hostname); } catch { return false; }
-}
+const sections=["Dashboard","Projects","Targets","Scans","Findings","Reports","Settings"];
+const modules:[ScanModule,string,string][]=[["assessment","Full assessment","Headers + TLS + technology"],["headers","Security headers","HTTP security configuration"],["tls","TLS","Certificate and protocol review"],["technology","Technology","Server/framework disclosure"]];
 
-export default function App() {
-  const [active, setActive] = useState("Dashboard");
-  const [target, setTarget] = useState("");
-  const [targets, setTargets] = useState<Target[]>([]);
-  const [scans, setScans] = useState<Scan[]>([]);
-  const [findings, setFindings] = useState<Finding[]>([]);
-  const [scopeConfirmed, setScopeConfirmed] = useState(false);
-  const [error, setError] = useState("");
-  const [loaded, setLoaded] = useState(false);
-  const [version, setVersion] = useState("0.1.0");
-  const [updateText, setUpdateText] = useState("");
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [reportScanId, setReportScanId] = useState<number | "">("");
+function allowedTarget(value:string){try{const u=new URL(value);return ["http:","https:"].includes(u.protocol)&&!u.username&&!u.password&&(!u.port||["80","443"].includes(u.port))&&!!u.hostname}catch{return false}}
+function sevClass(s:string){return s.toLowerCase().replace(/[^a-z]/g,"")}
+function fmt(v?:string){if(!v)return "—";const d=new Date(v);return Number.isNaN(d.getTime())?v:d.toLocaleString()}
 
-  const reload = async () => {
-    const [targetRows, scanRows] = await Promise.all([listTargets(), listScans()]);
-    setTargets(targetRows as Target[]); setScans(scanRows as Scan[]);
-    const rows = await Promise.all(scanRows.map((scan) => listFindings(scan.id!)));
-    setFindings(rows.flat() as Finding[]);
-  };
+export default function App(){
+  const [active,setActive]=useState("Dashboard"),[version,setVersion]=useState("0.1.0"),[loaded,setLoaded]=useState(false),[error,setError]=useState("");
+  const [projects,setProjects]=useState<Project[]>([]),[targets,setTargets]=useState<Target[]>([]),[scans,setScans]=useState<Scan[]>([]),[findings,setFindings]=useState<Finding[]>([]);
+  const [reports,setReports]=useState<ReportRecord[]>([]),[audit,setAudit]=useState<AuditRecord[]>([]);
+  const [selectedProject,setSelectedProject]=useState<number|"">(""),[targetUrl,setTargetUrl]=useState(""),[targetName,setTargetName]=useState(""),[targetEnv,setTargetEnv]=useState("production"),[scopeConfirmed,setScopeConfirmed]=useState(false),[authExpiry,setAuthExpiry]=useState("");
+  const [projectName,setProjectName]=useState(""),[client,setClient]=useState(""),[projectDescription,setProjectDescription]=useState("");
+  const [scanModule,setScanModule]=useState<ScanModule>("assessment"),[running,setRunning]=useState<number[]>([]),[reportScanId,setReportScanId]=useState<number|"">("");
+  const [findingFilter,setFindingFilter]=useState("all"),[checkingUpdate,setCheckingUpdate]=useState(false),[updateText,setUpdateText]=useState("");
 
-  useEffect(() => { Promise.all([initDatabase(), getVersion()]).then(async ([, v]) => { setVersion(v); await reload(); setLoaded(true); }).catch((e) => setError(e instanceof Error ? e.message : String(e))); }, []);
+  async function reload(){const [p,t,s,r,a]=await Promise.all([listProjects(),listTargets(),listScans(),listReports(),listAudit()]);setProjects(p as Project[]);setTargets(t as Target[]);setScans(s as Scan[]);setReports(r);setAudit(a);setFindings((await listFindings()) as Finding[])}
+  useEffect(()=>{Promise.all([initDatabase(),getVersion()]).then(async([,v])=>{setVersion(v);await reload();setLoaded(true)}).catch(e=>setError(e instanceof Error?e.message:String(e)))},[]);
 
-  async function addNewTarget() {
-    setError(""); const value = target.trim();
-    if (!scopeConfirmed) return setError("Confirm that you own or are authorized to test this target.");
-    if (!isAllowedTarget(value)) return setError("Use a valid HTTP(S) target on port 80 or 443.");
-    try { await addTarget({ url: value, authorized: true, createdAt: new Date().toISOString() }); await reload(); setTarget(""); setActive("Targets"); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  }
+  async function createProject(){setError("");if(!projectName.trim())return setError("Project name is required.");try{await addProject({name:projectName.trim(),client:client.trim(),description:projectDescription.trim(),status:"active",createdAt:new Date().toISOString()});setProjectName("");setClient("");setProjectDescription("");await reload();setActive("Projects")}catch(e){setError(e instanceof Error?e.message:String(e))}}
+  async function createTarget(){setError("");if(!selectedProject)return setError("Select a project first.");if(!scopeConfirmed)return setError("Confirm that you own this target or have explicit authorization.");if(!allowedTarget(targetUrl.trim()))return setError("Use a valid HTTP(S) target on port 80 or 443.");try{await addTarget({projectId:Number(selectedProject),url:targetUrl.trim(),name:targetName.trim(),environment:targetEnv,tags:"",authorized:true,authorizationExpiresAt:authExpiry||undefined,createdAt:new Date().toISOString()});setTargetUrl("");setTargetName("");setAuthExpiry("");await reload();setActive("Targets")}catch(e){setError(e instanceof Error?e.message:String(e))}}
+  async function startScan(t:Target,module=scanModule){setError("");if(!t.authorized)return setError("This target is not authorized.");if(t.authorizationExpiresAt&&new Date(t.authorizationExpiresAt)<new Date())return setError("Authorization for this target has expired.");const now=new Date().toISOString();let id:number|undefined;try{id=await addScan({targetId:t.id,projectId:t.projectId,scanner:module,status:"running",findingsCount:0,createdAt:now,startedAt:now});setRunning(x=>[...x,id!]);await reload();setActive("Scans");const result=await runScan(t.url,module);for(const f of result.findings)await addFinding({scanId:id!,targetId:t.id,check:f.check,title:f.title,severity:f.severity,status:f.status,description:f.description,evidence:f.evidence,recommendation:f.recommendation,reference:f.reference,value:f.value});await updateScan(id!,{status:"completed",findingsCount:result.findings.length,statusCode:result.status_code,finalUrl:result.url,finishedAt:new Date().toISOString()});await reload()}catch(e){const m=e instanceof Error?e.message:String(e);if(id)await updateScan(id,{status:"failed",error:m,finishedAt:new Date().toISOString()});setError(m);await reload()}finally{if(id)setRunning(x=>x.filter(v=>v!==id))}}
+  async function generateReport(scan:Scan){const t=targets.find(x=>x.id===scan.targetId);if(!t)return setError("Target no longer exists.");const fs=findings.filter(x=>x.scanId===scan.id);const p=projects.find(x=>x.id===scan.projectId);const html=buildAssessmentReport(t.url,scan,fs);openAssessmentReport(html);await addReport({projectId:scan.projectId,scanId:scan.id,name:`${p?.name||"Assessment"} • ${t.name||t.url}`,createdAt:new Date().toISOString()});await reload()}
+  async function checkUpdates(){setCheckingUpdate(true);setUpdateText("Checking GitHub release channel…");try{const result=await checkForUpdate((p:UpdateProgress)=>{if(p.event==="Started")setUpdateText("Downloading update…");else if(p.event==="Progress"&&p.contentLength)setUpdateText(`Downloading update… ${Math.round(p.downloaded/p.contentLength*100)}%`);else if(p.event==="Finished")setUpdateText("Installing update…")});if(!result)setUpdateText(`You are up to date (v${version}).`);else{setUpdateText(`v${result.version} installed. Restarting…`);await restartAfterUpdate()}}catch(e){setUpdateText(`Update failed: ${e instanceof Error?e.message:String(e)}`)}finally{setCheckingUpdate(false)}}
 
-  async function startScan(value: string, targetId: number) {
-    setError(""); if (!scopeConfirmed) return setError("Authorization confirmation is required before scanning.");
-    const createdAt = new Date().toISOString(); let scanId: number | undefined;
-    try { scanId = await addScan({ targetId, status: "running", findingsCount: 0, createdAt, startedAt: createdAt }); await reload(); setActive("Scans");
-      const result = await runHeadersScan(value);
-      await updateScan(scanId, { status: "completed", findingsCount: result.findings.length, statusCode: result.status_code, finalUrl: result.url, finishedAt: new Date().toISOString() });
-      for (const finding of result.findings) await addFinding({ scanId, check: finding.check, severity: finding.severity, status: finding.status, value: finding.value });
-      await reload();
-    } catch (e) { const message = e instanceof Error ? e.message : String(e); if (scanId !== undefined) await updateScan(scanId, { status: "failed", error: message, finishedAt: new Date().toISOString() }); await reload(); setError(message); }
-  }
-
-  async function removeTarget(id: number) { try { await deleteTarget(id); await reload(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }
-
-  async function checkUpdates() {
-    setCheckingUpdate(true); setUpdateText("Checking for a signed update…");
-    try {
-      const result = await checkForUpdate((progress: UpdateProgress) => {
-        if (progress.event === "Started") {
-          setUpdateText(progress.contentLength ? `Downloading update… 0 / ${Math.round(progress.contentLength / 1024 / 1024)} MB` : "Downloading update…");
-        } else if (progress.event === "Progress") {
-          const total = progress.contentLength;
-          setUpdateText(total ? `Downloading update… ${Math.round((progress.downloaded / total) * 100)}%` : `Downloading update… ${Math.round(progress.downloaded / 1024)} KB`);
-        } else {
-          setUpdateText("Installing update…");
-        }
-      });
-      if (!result) {
-        setUpdateText(`You are up to date (${version}).`);
-        return;
-      }
-      setUpdateText(`Update ${result.version} installed. Restarting…`);
-      await restartAfterUpdate();
-    } catch (e) {
-      setUpdateText(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setCheckingUpdate(false);
-    }
-  }
-
-  const activeScans = useMemo(() => scans.filter(s => s.status === "running").length, [scans]);
-  const completedScans = useMemo(() => scans.filter(s => s.status === "completed"), [scans]);
-  const selectedReportScan = useMemo(() => completedScans.find(s => s.id === reportScanId), [completedScans, reportScanId]);
-
-  function generateReport() {
-    setError("");
-    if (!selectedReportScan) return setError("Select a completed scan first.");
-    const scanTarget = targets.find(t => t.id === selectedReportScan.targetId);
-    if (!scanTarget) return setError("The target for this scan is no longer available.");
-    openAssessmentReport(buildAssessmentReport(scanTarget.url, selectedReportScan, findings.filter(f => f.scanId === selectedReportScan.id)));
-  }
-  if (!loaded) return <div className="loading-screen">Starting DadaDevourer…</div>;
+  const openFindings=findings.filter(f=>f.status!=="resolved"&&f.status!=="false positive"),critical=findings.filter(f=>f.severity.toLowerCase()==="critical").length,high=findings.filter(f=>f.severity.toLowerCase()==="high").length,medium=findings.filter(f=>f.severity.toLowerCase()==="medium").length;
+  const projectTargets=selectedProject?targets.filter(t=>t.projectId===Number(selectedProject)):[];
+  const filteredFindings=findingFilter==="all"?findings:findings.filter(f=>f.severity.toLowerCase()===findingFilter);
+  if(!loaded)return <div className="loading-screen"><div className="loading-mark">DD</div><b>Starting DadaDevourer</b><span>Loading local assessment database…</span></div>;
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark">DD</div><div><strong>DadaDevourer</strong><span>Security testing</span></div></div><nav>{sections.map(s => <button key={s} className={active === s ? "nav-item active" : "nav-item"} onClick={() => { setError(""); setActive(s); }}>{s}</button>)}</nav><div className="scope-card"><span className="status-dot" /><div><b>Local scanner</b><small>Bundled Windows engine</small></div></div></aside>
-    <main className="content"><header className="topbar"><div><span className="eyebrow">WORKSPACE</span><h1>{active}</h1></div><div className="connection"><span className="status-dot" /> Engine ready <button className="update-button" onClick={checkUpdates} disabled={checkingUpdate}>{checkingUpdate ? "Checking…" : "Check for updates"}</button></div></header>
-      {error && <div className="error-banner">{error}</div>}
-      {updateText && <div className="info-banner">{updateText}</div>}
-      {active === "Dashboard" && <><section className="hero"><div><span className="eyebrow">AUTHORIZED SECURITY TESTING</span><h2>Find security weaknesses before attackers do.</h2><p>Run authorized scans locally on Windows and keep your testing data under your control.</p></div><div className="hero-badge">Windows x64<br /><b>Desktop Edition</b><small>v{version}</small></div></section><section className="stats"><article><span>Targets</span><b>{targets.length}</b><small>SQLite targets</small></article><article><span>Active scans</span><b>{activeScans}</b><small>Local scanner activity</small></article><article><span>Findings</span><b>{findings.length}</b><small>SQLite findings</small></article><article><span>Reports</span><b>{completedScans.length}</b><small>Completed scans available</small></article></section><section className="panel"><div className="panel-heading"><div><h3>Start an authorized test</h3><p>Add a system you own or have explicit permission to assess.</p></div><span className="safe-pill">SCOPE REQUIRED</span></div><div className="target-row"><input value={target} onChange={e => setTarget(e.target.value)} onKeyDown={e => { if (e.key === "Enter") void addNewTarget(); }} placeholder="https://example.com" /><button onClick={() => void addNewTarget()}>Add target</button></div><label className="scope-check"><input type="checkbox" checked={scopeConfirmed} onChange={e => setScopeConfirmed(e.target.checked)} /> I confirm I own this target or have explicit authorization to test it.</label></section></>}
-      {active === "Targets" && <section className="panel"><div className="panel-heading"><div><h3>Authorized targets</h3><p>Stored in the local SQLite database.</p></div></div>{targets.length === 0 ? <div className="empty-state compact"><h2>No targets yet</h2><p>Add your first authorized HTTP(S) target from the dashboard.</p></div> : targets.map(t => <div className="target-card" key={t.id}><div><b>{t.url}</b><small>Authorization recorded • SQLite</small></div><div><button onClick={() => void startScan(t.url, t.id)} disabled={scans.some(s => s.targetId === t.id && s.status === "running")}>Start headers scan</button><button className="danger-button" onClick={() => void removeTarget(t.id)}>Delete</button></div></div>)}</section>}
-      {active === "Scans" && <section className="panel"><div className="panel-heading"><div><h3>Scan history</h3><p>Persistent local scanner lifecycle and results.</p></div></div>{scans.length === 0 ? <div className="empty-state compact"><h2>No scans yet</h2><p>Start a headers scan from Targets.</p></div> : scans.map(s => <div className="scan-card" key={s.id}><div><b>{targets.find(t => t.id === s.targetId)?.url || `Target #${s.targetId}`}</b><small>{new Date(s.createdAt).toLocaleString()} • Headers scanner{s.statusCode ? ` • HTTP ${s.statusCode}` : ""}{s.finalUrl ? ` • ${s.finalUrl}` : ""}</small>{s.error && <small className="scan-error">{s.error}</small>}</div><span className={`scan-status ${s.status}`}>{s.status}</span><strong>{s.findingsCount} findings</strong></div>)}</section>}
-      {active === "Findings" && <section className="panel"><div className="panel-heading"><div><h3>Findings</h3><p>Security header observations stored in SQLite.</p></div></div>{findings.length === 0 ? <div className="empty-state compact"><h2>No findings</h2><p>Completed scans will appear here.</p></div> : findings.map((f, i) => <div className="finding-card" key={`${f.id ?? f.scanId}-${i}`}><div><b>{f.check}</b><small>{f.status}{f.value ? ` • ${f.value}` : ""}</small><small>{targets.find(t => t.id === scans.find(s => s.id === f.scanId)?.targetId)?.url || ""}</small></div><span>{f.severity}</span></div>)}</section>}
-      {active === "Reports" && <section className="panel"><div className="panel-heading"><div><h3>Assessment reports</h3><p>Generate a local, print-ready report from a completed SQLite scan.</p></div><span className="safe-pill">LOCAL ONLY</span></div>{completedScans.length === 0 ? <div className="empty-state compact"><div className="empty-icon">R</div><h2>No completed scans</h2><p>Complete a headers scan first. Its persisted observations can then be turned into a report.</p></div> : <><div className="report-controls"><label><span>Completed scan</span><select value={reportScanId} onChange={e => setReportScanId(e.target.value ? Number(e.target.value) : "")}><option value="">Select a scan…</option>{completedScans.map(s => <option key={s.id} value={s.id}>{targets.find(t => t.id === s.targetId)?.url || `Target #${s.targetId}`} • {new Date(s.createdAt).toLocaleString()} • {s.findingsCount} findings</option>)}</select></label><button onClick={generateReport} disabled={!selectedReportScan}>Generate report</button></div>{selectedReportScan && <div className="report-preview"><div><b>{targets.find(t => t.id === selectedReportScan.targetId)?.url || `Target #${selectedReportScan.targetId}`}</b><small>Scan #{selectedReportScan.id} • {new Date(selectedReportScan.createdAt).toLocaleString()}</small></div><strong>{selectedReportScan.findingsCount} findings</strong></div>}</>}</section>}
-      {active === "Settings" && <section className="panel"><div className="panel-heading"><div><h3>Application settings</h3><p>DadaDevourer Desktop v{version}</p></div></div><div className="settings-row"><b>Scanner mode</b><span>Bundled local Windows x64 engine</span></div><div className="settings-row"><b>Data storage</b><span>Native SQLite database</span></div><div className="settings-row"><b>Updates</b><span>Check the GitHub release channel from the button in the top bar.</span></div><div className="settings-row"><b>Cloud sync</b><span>Optional — not required for local testing</span></div></section>}
-    </main></div>;
+    <aside className="sidebar">
+      <div className="brand"><div className="brand-mark">DD</div><div><strong>DadaDevourer</strong><span>Security assessment</span></div></div>
+      <div className="side-label">WORKSPACE</div><nav>{sections.map(s=><button key={s} className={active===s?"nav-item active":"nav-item"} onClick={()=>{setError("");setActive(s)}}><span className="nav-glyph">{s[0]}</span>{s}</button>)}</nav>
+      <div className="scope-card"><span className="status-dot"/><div><b>Local engine ready</b><small>Authorized testing only</small></div></div>
+    </aside>
+    <main className="content">
+      <header className="topbar"><div><span className="eyebrow">DADADEVOURER • DESKTOP</span><h1>{active}</h1></div><div className="top-actions"><span className="engine-state"><span className="status-dot"/> Scanner ready</span><button className="ghost-button" disabled={checkingUpdate} onClick={()=>void checkUpdates()}>{checkingUpdate?"Checking…":"Check updates"}</button></div></header>
+      {error&&<div className="error-banner"><b>Action needs attention</b><span>{error}</span><button onClick={()=>setError("")}>×</button></div>}
+      {updateText&&<div className="info-banner">{updateText}</div>}
+
+      {active==="Dashboard"&&<><section className="hero"><div><span className="eyebrow">AUTHORIZED SECURITY ASSESSMENT</span><h2>Assess your systems with a clear, repeatable workflow.</h2><p>Organize projects, confirm scope, run controlled local scans, review evidence, and produce assessment reports.</p><div className="hero-actions"><button className="primary" onClick={()=>setActive("Projects")}>Create project</button><button className="secondary" onClick={()=>setActive("Targets")}>Manage targets</button></div></div><div className="hero-side"><span>LOCAL-FIRST</span><strong>Windows x64</strong><small>SQLite + bundled scanner</small><small>v{version}</small></div></section>
+      <section className="stats"><div><span>Projects</span><b>{projects.length}</b><small>Assessment workspaces</small></div><div><span>Authorized targets</span><b>{targets.length}</b><small>Stored locally</small></div><div><span>Open findings</span><b>{openFindings.length}</b><small>{critical} critical • {high} high</small></div><div><span>Completed scans</span><b>{scans.filter(s=>s.status==="completed").length}</b><small>{scans.filter(s=>s.status==="running").length} running now</small></div></section>
+      <section className="grid-2"><div className="panel"><div className="panel-heading"><div><h3>Assessment workflow</h3><p>Keep every test tied to an authorized project.</p></div></div><div className="workflow"><div><i>01</i><b>Project</b><small>Client and assessment context</small></div><div><i>02</i><b>Scope</b><small>Authorized targets only</small></div><div><i>03</i><b>Scan</b><small>Controlled local modules</small></div><div><i>04</i><b>Report</b><small>Evidence and recommendations</small></div></div></div>
+      <div className="panel"><div className="panel-heading"><div><h3>Risk overview</h3><p>Current findings from all local scans.</p></div></div><div className="risk-list">{[["Critical",critical],["High",high],["Medium",medium],["Low",findings.filter(f=>f.severity.toLowerCase()==="low").length],["Info",findings.filter(f=>f.severity.toLowerCase()==="informational").length]].map(([n,v])=><div className="risk-row" key={n}><span>{n}</span><div><i style={{width:`${Math.min(100,Number(v)*8+2)}%`}}/></div><b>{v}</b></div>)}</div></div></section></>}
+
+      {active==="Projects"&&<section className="grid-2"><div className="panel"><div className="panel-heading"><div><h3>New assessment project</h3><p>Every target and scan belongs to a project.</p></div></div><div className="form-grid"><label>Project name<input value={projectName} onChange={e=>setProjectName(e.target.value)} placeholder="Acme Web Security Assessment"/></label><label>Client / company<input value={client} onChange={e=>setClient(e.target.value)} placeholder="Acme Corporation"/></label><label className="full">Description<textarea value={projectDescription} onChange={e=>setProjectDescription(e.target.value)} placeholder="Assessment scope, objectives and notes…"/></label><button className="primary full" onClick={()=>void createProject()}>Create project</button></div></div><div className="panel"><div className="panel-heading"><div><h3>Projects</h3><p>{projects.length} local assessment workspaces</p></div></div>{projects.length===0?<Empty title="No projects" text="Create a project before adding a target."/>:<div className="list">{projects.map(p=><div className="list-row" key={p.id}><div className="avatar">{p.name[0]?.toUpperCase()}</div><div className="grow"><b>{p.name}</b><small>{p.client||"No client"} • {targets.filter(t=>t.projectId===p.id).length} targets • {scans.filter(s=>s.projectId===p.id).length} scans</small></div><span className="badge success">{p.status}</span><button className="icon-button" title="Open project" onClick={()=>{setSelectedProject(p.id);setActive("Targets")}}>Open</button><button className="icon-button danger" title="Delete project" onClick={()=>void deleteProject(p.id).then(reload).catch(e=>setError(e instanceof Error?e.message:String(e)))}>Delete</button></div>)}</div>}</div></section>}
+
+      {active==="Targets"&&<section className="grid-2"><div className="panel"><div className="panel-heading"><div><h3>Add authorized target</h3><p>A scope confirmation is required for every target.</p></div><span className="safe-pill">SCOPE GATE</span></div><div className="form-grid"><label>Project<select value={selectedProject} onChange={e=>setSelectedProject(e.target.value?Number(e.target.value):"")}><option value="">Select project…</option>{projects.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}</select></label><label>Environment<select value={targetEnv} onChange={e=>setTargetEnv(e.target.value)}><option>production</option><option>staging</option><option>development</option><option>lab</option></select></label><label className="full>Target URL<input value={targetUrl} onChange={e=>setTargetUrl(e.target.value)} placeholder="https://portal.example.com"/></label><label>Target name<input value={targetName} onChange={e=>setTargetName(e.target.value)} placeholder="Customer portal"/></label><label>Authorization expiry<input type="date" value={authExpiry} onChange={e=>setAuthExpiry(e.target.value)}/></label><label className="scope-check full"><input type="checkbox" checked={scopeConfirmed} onChange={e=>setScopeConfirmed(e.target.checked)}/><span>I confirm I own this target or have explicit authorization to test it.</span></label><button className="primary full" onClick={()=>void createTarget()}>Add authorized target</button></div></div><div className="panel"><div className="panel-heading"><div><h3>Target inventory</h3><p>{targets.length} targets • {projectTargets.length} in selected project</p></div></div>{targets.length===0?<Empty title="No targets" text="Add an authorized HTTP(S) target to begin."/>:<div className="list">{targets.map(t=>{const p=projects.find(x=>x.id===t.projectId);const expired=t.authorizationExpiresAt&&new Date(t.authorizationExpiresAt)<new Date();return <div className="list-row" key={t.id}><div className={expired?"target-dot expired":"target-dot"}/><div className="grow"><b>{t.name||t.url}</b><small>{t.url} • {p?.name||"Project"} • {t.environment}</small></div><span className={expired?"badge danger":"badge success"}>{expired?"expired":"authorized"}</span><button className="scan-mini" disabled={running.includes(t.id)} onClick={()=>void startScan(t)}>{running.includes(t.id)?"Running…":"Scan"}</button><button className="icon-button danger" onClick={()=>void deleteTarget(t.id).then(reload).catch(e=>setError(e instanceof Error?e.message:String(e)))}>Delete</button></div>})}</div>}</div></section>}
+
+      {active==="Scans"&&<section className="panel"><div className="panel-heading"><div><h3>Assessment runs</h3><p>Run one controlled module or the complete local assessment.</p></div><div className="scan-launch"><select value={scanModule} onChange={e=>setScanModule(e.target.value as ScanModule)}>{modules.map(m=><option value={m[0]} key={m[0]}>{m[1]}</option>)}</select><button className="primary" onClick={()=>{setActive("Targets");setError("")}}>Choose target</button></div></div>{scans.length===0?<Empty title="No scans yet" text="Select an authorized target and start an assessment."/>:<div className="scan-table"><div className="table-head"><span>Assessment</span><span>Module</span><span>Status</span><span>Findings</span><span>Finished</span></div>{scans.map(s=><div className="table-row" key={s.id}><div><b>#{s.id} • {targets.find(t=>t.id===s.targetId)?.name||targets.find(t=>t.id===s.targetId)?.url||"Target"}</b><small>{projects.find(p=>p.id===s.projectId)?.name||"Project"}</small></div><span className="module-pill">{s.scanner}</span><span className={`scan-status ${s.status}`}>{s.status}</span><b>{s.findingsCount}</b><small>{fmt(s.finishedAt)}</small></div>)}</div>}</section>}
+
+      {active==="Findings"&&<section className="panel"><div className="panel-heading"><div><h3>Findings & evidence</h3><p>Review, classify and track observations from completed scans.</p></div><div className="filter-group">{["all","critical","high","medium","low"].map(x=><button key={x} className={findingFilter===x?"filter active":"filter"} onClick={()=>setFindingFilter(x)}>{x}</button>)}</div></div>{filteredFindings.length===0?<Empty title="No findings" text="Run an assessment to populate evidence here."/>:<div className="finding-list">{filteredFindings.map(f=><div className="finding" key={f.id}><div className={`severity-bar ${sevClass(f.severity)}`}/><div className="grow"><div className="finding-title"><b>{f.title||f.check}</b><span className={`severity ${sevClass(f.severity)}`}>{f.severity}</span></div><small>{targets.find(t=>t.id===f.targetId)?.url||"Target"} • {f.check}</small>{f.value&&<code>{f.value}</code>}<p>{f.description||"Scanner observation recorded without additional description."}</p>{f.recommendation&&<div className="recommendation"><b>Recommendation</b><span>{f.recommendation}</span></div>}</div><select className="status-select" value={f.status} onChange={e=>void updateFinding(f.id,{status:e.target.value}).then(reload)}><option value="open">Open</option><option value="review">Review</option><option value="confirmed">Confirmed</option><option value="accepted">Accepted</option><option value="resolved">Resolved</option><option value="false positive">False positive</option></select></div>)}</div>}</section>}
+
+      {active==="Reports"&&<section className="grid-2"><div className="panel"><div className="panel-heading"><div><h3>Generate assessment report</h3><p>Build a local report from a completed scan.</p></div><span className="safe-pill">LOCAL</span></div><label className="stack-label">Completed scan<select value={reportScanId} onChange={e=>setReportScanId(e.target.value?Number(e.target.value):"")}><option value="">Select a completed scan…</option>{scans.filter(s=>s.status==="completed").map(s=><option value={s.id} key={s.id}>#{s.id} • {targets.find(t=>t.id===s.targetId)?.name||targets.find(t=>t.id===s.targetId)?.url} • {s.findingsCount} findings</option>)}</select></label>{reportScanId&&<button className="primary wide" onClick={()=>{const s=scans.find(x=>x.id===Number(reportScanId));if(s)void generateReport(s)}}>Generate & open report</button>}</div><div className="panel"><div className="panel-heading"><div><h3>Report history</h3><p>Generated assessment records stored locally.</p></div></div>{reports.length===0?<Empty title="No reports" text="Generate your first report after a completed scan."/>:<div className="list">{reports.map(r=><div className="list-row" key={r.id}><div className="report-icon">R</div><div className="grow"><b>{r.name}</b><small>Scan #{r.scanId} • {fmt(r.createdAt)}</small></div><span className="badge">stored</span></div>)}</div>}</div></section>}
+
+      {active==="Settings"&&<section className="grid-2"><div className="panel"><div className="panel-heading"><div><h3>Application</h3><p>Local-first security assessment workstation.</p></div></div><div className="settings"><div><b>Version</b><span>v{version}</span></div><div><b>Scanner</b><span>Bundled Python engine • 45s safety timeout</span></div><div><b>Storage</b><span>Native SQLite on this Windows machine</span></div><div><b>Updates</b><span>GitHub release channel</span></div></div></div><div className="panel"><div className="panel-heading"><div><h3>Audit trail</h3><p>Recent important local actions.</p></div></div><div className="audit">{audit.slice(0,12).map(a=><div key={a.id}><span>{fmt(a.createdAt)}</span><b>{a.action}</b><small>{a.details||a.objectType}</small></div>)}</div></div></section>}
+    </main>
+  </div>
 }
+
+function Empty({title,text}:{title:string;text:string}){return <div className="empty-state"><div className="empty-icon">—</div><h2>{title}</h2><p>{text}</p></div>}
