@@ -3,7 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import {
   addFinding, addProject, addReport, addScan, addTarget, deleteProject, deleteTarget,
   initDatabase, listAudit, listFindings, listProjects, listReports, listScans, listTargets,
-  updateFinding, updateProject, type AuditRecord, type FindingRecord, type ProjectRecord,
+  updateFinding, updateProject, updateScan, type AuditRecord, type FindingRecord, type ProjectRecord,
   type ReportRecord, type ScanRecord, type TargetRecord
 } from "./db";
 import { runScan, type ScanModule } from "./scanner";
