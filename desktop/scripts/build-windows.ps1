@@ -55,6 +55,7 @@ Write-Host "Scanner sidecar: $Destination" -ForegroundColor Green
 Push-Location $Desktop
 try {
     npm install
+    npm run icons
     npm run build
     npm run tauri:build
 } finally {
