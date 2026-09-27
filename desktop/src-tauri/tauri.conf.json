@@ -28,8 +28,7 @@
   "bundle": {
     "active": true,
     "targets": [
-      "nsis",
-      "msi"
+      "nsis"
     ],
     "createUpdaterArtifacts": false,
     "externalBin": [
@@ -41,7 +40,10 @@
         "displayLanguageSelector": true,
         "installerIcon": "icons/icon.ico"
       }
-    }
+    },
+    "icon": [
+      "icons/icon.ico"
+    ]
   },
   "plugins": {
     "updater": {
