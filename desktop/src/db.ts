@@ -58,10 +58,16 @@ export async function initDatabase() {
   await database.execute("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, object_type TEXT NOT NULL, object_id INTEGER, details TEXT, created_at TEXT NOT NULL)");
   await database.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, scan_id INTEGER NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL)");
   const projects = await database.select<Row[]>("SELECT id FROM projects ORDER BY id LIMIT 1");
-  if (!projects.length) await database.execute("INSERT INTO projects (name,client,status,created_at) VALUES ('Default Assessment','Local','active',?)", [new Date().toISOString()]);
-  const projectId = Number((await database.select<Row[]>("SELECT id FROM projects ORDER BY id LIMIT 1"))[0].id);
-  await database.execute("UPDATE targets SET project_id = ? WHERE project_id IS NULL", [projectId]);
-  await database.execute("UPDATE scans SET project_id = COALESCE(project_id, (SELECT project_id FROM targets WHERE targets.id=scans.target_id), ?)", [projectId]);
+  const legacyData = Number((await database.select<Row[]>("SELECT (SELECT COUNT(*) FROM targets) + (SELECT COUNT(*) FROM scans) AS count"))[0].count) > 0;
+  if (!projects.length && legacyData) {
+    await database.execute("INSERT INTO projects (name,client,status,created_at) VALUES ('Default Assessment','Local','active',?)", [new Date().toISOString()]);
+  }
+  const projectRows = await database.select<Row[]>("SELECT id FROM projects ORDER BY id LIMIT 1");
+  if (projectRows.length) {
+    const projectId = Number(projectRows[0].id);
+    await database.execute("UPDATE targets SET project_id = ? WHERE project_id IS NULL", [projectId]);
+    await database.execute("UPDATE scans SET project_id = COALESCE(project_id, (SELECT project_id FROM targets WHERE targets.id=scans.target_id), ?)", [projectId]);
+  }
   await database.execute("UPDATE findings SET target_id = COALESCE(target_id, (SELECT target_id FROM scans WHERE scans.id=findings.scan_id))");
   await database.execute("UPDATE findings SET created_at = COALESCE(created_at, ?), updated_at = COALESCE(updated_at, ?)", [new Date().toISOString(), new Date().toISOString()]);
   await database.execute("CREATE INDEX IF NOT EXISTS idx_targets_project ON targets(project_id)");
