@@ -23,7 +23,9 @@ Current desktop capabilities:
 - Report history
 - Local audit trail
 - GitHub updater foundation
-- Windows x64 NSIS packaging
+- Windows x64 NSIS and MSI packaging
+- Bundled PyInstaller scanner sidecar (no Python required for end users)
+- WebView2 bootstrapper installation when required
 
 Use only against systems you own or have explicit permission to assess. The scanner uses controlled HTTP(S)/TLS observations and does not provide credential stuffing, stealth/evasion, destructive exploitation, or mass public scanning.
 
@@ -32,8 +34,8 @@ Use only against systems you own or have explicit permission to assess. The scan
 Requirements:
 
 - Windows x64 for native installer builds
-- Node.js 22+
-- Python 3.13+
+- Node.js 20+
+- Python 3.13+ (build-time only)
 - Rust stable
 - Tauri 2 prerequisites
 
@@ -56,7 +58,10 @@ Installers are produced under:
 
 ```text
 desktop/src-tauri/target/release/bundle/nsis/
+desktop/src-tauri/target/release/bundle/msi/
 ```
+
+The installed application bundles the scanner executable. End users do not need Node.js, Rust, Python, or a separate SQLite installation. Assessment data is stored under the Windows roaming application-data location for DadaDevourer (`%APPDATA%\\dadadevourer`).
 
 Generated installers and scanner binaries should not be committed to source control.
 
@@ -76,7 +81,7 @@ cd desktop\scripts
 update-latest.cmd
 ```
 
-The scripts query only the latest GitHub release of this repository and select the Windows NSIS `.exe` installer asset. NSIS is the supported Windows installer format in the release pipeline. Application data is kept in the Tauri/SQLite application-data location and is not intentionally removed by an installer upgrade.
+The scripts query only the latest GitHub release of this repository and select the Windows NSIS `.exe` installer asset. NSIS and MSI are produced by the Windows release pipeline. NSIS is the primary consumer installer; MSI is provided for enterprise/GPO deployment. Application data is kept in the Tauri/SQLite application-data location and is not intentionally removed by an installer upgrade.
 
 ## Safe push workflow
 
@@ -97,7 +102,7 @@ git push origin main
 
 ## Release and updater signing
 
-GitHub Actions builds the Windows x64 scanner and Tauri installers and publishes a GitHub Release. Signed updater artifacts require these GitHub Actions secrets:
+GitHub Actions builds the Windows x64 scanner and both NSIS/MSI Tauri installers and publishes a GitHub Release. Signed updater artifacts require these GitHub Actions secrets:
 
 - TAURI_UPDATER_PUBLIC_KEY
 - TAURI_SIGNING_PRIVATE_KEY
