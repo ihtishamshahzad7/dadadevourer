@@ -47,6 +47,13 @@ npm install
 npm run tauri:dev
 ```
 
+For a complete Windows installer build, including the bundled scanner sidecar:
+
+```powershell
+cd desktop
+npm run tauri:build:windows
+```
+
 ## Windows installer
 
 ```powershell
@@ -61,7 +68,7 @@ desktop/src-tauri/target/release/bundle/nsis/
 desktop/src-tauri/target/release/bundle/msi/
 ```
 
-The installed application bundles the scanner executable. End users do not need Node.js, Rust, Python, or a separate SQLite installation. Assessment data is stored under the Windows roaming application-data location for DadaDevourer (`%APPDATA%\\dadadevourer`).
+The installed application bundles the scanner executable and uses the Tauri Windows WebView2 bootstrapper when needed. End users do not need Node.js, Rust, Python, PyInstaller, or a separate SQLite installation. Assessment data is stored under the Windows roaming application-data location for DadaDevourer (`%APPDATA%\\dadadevourer`).
 
 Generated installers and scanner binaries should not be committed to source control.
 
