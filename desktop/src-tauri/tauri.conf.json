@@ -62,6 +62,11 @@
         "https://github.com/ihtishamshahzad7/dadadevourer/releases/latest/download/latest.json"
       ],
       "dangerousInsecureTransportProtocol": false
+    },
+    "sql": {
+      "preload": [
+        "sqlite:dadadevourer.db"
+      ]
     }
   }
 }
