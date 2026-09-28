@@ -43,17 +43,22 @@
       "nsis": {
         "installMode": "perMachine",
         "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons/icon.ico",
+        "startMenuFolder": "DadaDevourer"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
         "silent": true
       },
-      "bundleVCRuntime": true
+      "bundleVCRuntime": true,
+      "allowDowngrades": false
     },
     "icon": [
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "DadaDevourer",
+    "shortDescription": "Authorized security assessment workstation",
+    "longDescription": "Local-first Windows desktop application for authorized security assessments with a bundled scanner sidecar."
   },
   "plugins": {
     "updater": {
