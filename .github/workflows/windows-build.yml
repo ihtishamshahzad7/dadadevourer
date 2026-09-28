@@ -101,6 +101,16 @@ jobs:
           uploadUpdaterSignatures: false
           uploadWorkflowArtifacts: true
 
+      - name: Verify Windows installer outputs
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem "desktop/src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue
+          $msi = Get-ChildItem "desktop/src-tauri/target/release/bundle/msi/*.msi" -ErrorAction SilentlyContinue
+          if (-not $nsis) { throw "NSIS installer was not produced." }
+          if (-not $msi) { throw "MSI installer was not produced." }
+          Write-Host "NSIS installer: $($nsis.FullName)"
+          Write-Host "MSI installer: $($msi.FullName)"
+
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
