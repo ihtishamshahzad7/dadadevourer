@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20"
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -62,19 +62,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
       - name: Build scanner sidecar
-        working-directory: desktop/engine
-        run: python -m PyInstaller --clean --noconfirm dadadevourer-scanner.spec
-      - name: Stage x64 scanner sidecar
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "desktop/src-tauri/binaries" | Out-Null
-          Copy-Item "desktop/engine/dist/dadadevourer-scanner.exe" "desktop/src-tauri/binaries/dadadevourer-scanner-x86_64-pc-windows-msvc.exe" -Force
+        shell: cmd
+        run: desktop\scripts\build-scanner-windows.bat
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm install
       - name: Generate Windows application icons
         working-directory: desktop
         run: npm run icons
+      - name: Verify frontend build
+        working-directory: desktop
+        run: npm run build
       - name: Build and publish signed Tauri release
         if: steps.signing.outputs.signed == 'true'
         uses: tauri-apps/tauri-action@v1
@@ -105,3 +103,12 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: false
           uploadWorkflowArtifacts: true
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: DadaDevourer-Windows-Installers
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
