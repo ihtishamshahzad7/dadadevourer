@@ -4,7 +4,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 ROOT = Path(SPECPATH)
 
-hiddenimports = collect_submodules("httpx")
+hiddenimports = collect_submodules("httpx") + collect_submodules("dns")
 
 a = Analysis(
     [str(ROOT / "protocol.py")],
