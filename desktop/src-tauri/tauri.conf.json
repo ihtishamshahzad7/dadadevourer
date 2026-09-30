@@ -72,7 +72,8 @@
       "windows": {
         "installMode": "passive",
         "restartAfterInstall": true
-      }
+      },
+      "requireSignedVersion": true
     },
     "sql": {
       "preload": [
