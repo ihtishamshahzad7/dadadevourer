@@ -67,7 +67,7 @@ export default function App(){
   const filteredFindings=findingFilter==="all"?findings:findings.filter(f=>f.severity.toLowerCase()===findingFilter);
   if(!loaded)return <div className="loading-screen"><div className="loading-mark">DD</div><b>Starting DadaDevourer</b><span>Loading local assessment database…</span></div>;
 
-  return <div className="app-shell">{updateBanner&&updateAvailable&&<div className="update-banner" role="status"><div><b>A new version is available.</b><span>v{updateAvailable.version} is ready to download.</span></div><button onClick={()=>{setActive("Settings");setUpdateBanner(false)}}>Click to update</button></div>
+  return <div className="app-shell">{updateBanner&&updateAvailable&&<div className="update-banner" role="status"><div><b>A new version is available.</b><span>v{updateAvailable.version} is ready to download.</span></div><button onClick={()=>{setActive("Settings");setUpdateBanner(false)}}>Click to update</button></div>}
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">DD</div><div><strong>DadaDevourer</strong><span>Security assessment</span></div></div>
       <div className="side-label">WORKSPACE</div><nav>{sections.map(s=><button key={s} className={active===s?"nav-item active":"nav-item"} onClick={()=>{setError("");setActive(s)}}><span className="nav-glyph">{s[0]}</span>{s}{s==="Findings"&&openFindings.length>0&&<span className="nav-count">{openFindings.length}</span>}</button>)}</nav>
