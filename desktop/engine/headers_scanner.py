@@ -143,9 +143,14 @@ def header_findings(response, chain, body):
             findings.append(informational("security_header:hsts_preload", "HSTS preload directive not present",
                 "The HSTS header does not advertise preload.", hsts, "Consider preload only after meeting preload requirements.", "hstspreload.org"))
     xfo = h.get("x-frame-options")
+    frame_ancestors = bool(csp and re.search(r"frame-ancestors\\s+[^;]+", csp, re.I))
     if not xfo:
-        findings.append(finding("security_header:x_frame_options", "X-Frame-Options missing", "Medium",
-            "The response lacks X-Frame-Options.", None, "Use CSP frame-ancestors and/or X-Frame-Options according to browser compatibility needs.", "OWASP Clickjacking Defense"))
+        if not frame_ancestors:
+            findings.append(finding("clickjacking:protection_missing", "Clickjacking protection missing", "Medium",
+                "Neither X-Frame-Options nor a CSP frame-ancestors directive was detected.", None, "Set an appropriate CSP frame-ancestors policy and/or X-Frame-Options.", "OWASP Clickjacking Defense"))
+        else:
+            findings.append(informational("security_header:x_frame_options", "X-Frame-Options missing but CSP frame-ancestors is present",
+                "X-Frame-Options is absent, but CSP frame-ancestors provides framing control.", csp, "Keep the CSP framing policy reviewed and aligned with application requirements.", "OWASP Clickjacking Defense"))
     elif "allow-from" in xfo.lower():
         findings.append(finding("security_header:x_frame_allow_from", "Deprecated X-Frame-Options ALLOW-FROM", "Low",
             "X-Frame-Options uses the deprecated ALLOW-FROM directive.", xfo, "Prefer CSP frame-ancestors.", "MDN X-Frame-Options"))
@@ -228,6 +233,7 @@ async def common_content_checks(base_url, body):
     findings=[]
     parsed=urlparse(base_url)
     for path, check, label in [
+        ("/nonexistent-page-404-test","error_pages:common_404","404 test"),
         ("/robots.txt","content:robots","robots.txt"),
         ("/.well-known/security.txt","content:security_txt","security.txt"),
         ("/sitemap.xml","content:sitemap","sitemap.xml"),
@@ -235,7 +241,10 @@ async def common_content_checks(base_url, body):
         try:
             response,_=await fetch(urljoin(base_url,path))
             text=response.text[:200000]
-            if response.status_code == 200:
+            if label=="404 test":
+                if response.status_code >= 400 and re.search(r"(traceback|stack trace|exception|at [\\w.$]+\\(|/var/www/|c:\\\\|\\.cs:\\d+|\\.java:\\d+)", text, re.I):
+                    findings.append(finding(check,"Error page reveals stack-trace details","High","A common non-existent path returned error content containing stack-trace or local path patterns.",text[:1500],"Return generic error pages and keep detailed diagnostics server-side.","OWASP Error Handling"))
+            elif response.status_code == 200:
                 if label=="robots.txt":
                     sensitive=[line.strip() for line in text.splitlines() if re.search(r"disallow:\s*/(?:admin|api|internal|private|backup)",line,re.I)]
                     if sensitive:
