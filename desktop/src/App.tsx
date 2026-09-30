@@ -74,7 +74,7 @@ export default function App(){
       <div className="scope-card"><span className="status-dot"/><div><b>Local engine ready</b><small>Authorized testing only</small></div></div>
     </aside>
     <main className="content">{toast&&<div className="toast-success" role="status">{toast}</div>}
-      <header className="topbar"><div><span className="eyebrow">DADADEVOURER • DESKTOP</span><h1>{active}</h1></div><div className="top-actions"><span className="engine-state"><span className="status-dot"/>{version}</span><button onClick={checkUpdates} disabled={checkingUpdate}>{checkingUpdate?"Checking...":"Check update"}</button></div></header>
+      <header className="topbar"><div><span className="eyebrow">DADADEVOURER • DESKTOP</span><h1>{active}</h1></div><div className="top-actions"><span className="engine-state"><span className="status-dot"/>{version}</span><button onClick={()=>void checkUpdates(true)} disabled={checkingUpdate}>{checkingUpdate?"Checking...":"Check update"}</button></div></header>
       {error&&<div className="error-banner"><b>Action needs attention</b><span>{error}</span><button onClick={()=>setError("")}>×</button></div>}
 
       {active==="Dashboard"&&<><section className="hero"><div><span className="eyebrow">WELCOME TO DADADEVOURER</span><h2>Start your first authorized security assessment.</h2><p>Create a project, add a target you own or are explicitly authorized to test, then run a controlled assessment.</p><div className="hero-actions"><button onClick={()=>setActive("Projects")}>Create first project</button><button className="secondary" onClick={()=>setActive("Targets")}>Add authorized target</button></div></div></section>
