@@ -2,7 +2,7 @@ name: Windows x64 Desktop Build
 
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          $version = "0.1.${{ github.run_number }}"
+          $version = "0.3.0"
           $package = Get-Content desktop/package.json -Raw | ConvertFrom-Json
           $package.version = $version
           $package | ConvertTo-Json -Depth 20 | Set-Content desktop/package.json
@@ -79,8 +79,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
-          tagName: v0.1.${{ github.run_number }}
-          releaseName: DadaDevourer Desktop v0.1.${{ github.run_number }}
+          tagName: v0.3.0
+          releaseName: DadaDevourer Desktop v0.3.0
           generateReleaseNotes: true
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
@@ -120,7 +120,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
 
-      - name: Prepare v0.2.0 release assets
+      - name: Prepare v0.3.0 release assets
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release-assets | Out-Null
@@ -131,12 +131,12 @@ jobs:
           Copy-Item $nsis.FullName "release-assets/DadaDevourer_x64-setup.exe"
           Copy-Item $msi.FullName "release-assets/DadaDevourer_x64.msi"
 
-      - name: Publish DadaDevourer v0.2.0
+      - name: Publish DadaDevourer v0.3.0
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v0.2.0
+          tag_name: v0.3.0
           target_commitish: ${{ github.sha }}
-          name: DadaDevourer v0.2.0
+          name: DadaDevourer v0.3.0
           body: |
             Self-contained Windows installer. No dependencies required.
             Download DadaDevourer_x64-setup.exe and run it.
