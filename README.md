@@ -39,7 +39,7 @@ The API container applies Alembic migrations before starting. The worker consume
 The Windows desktop application uses the Tauri updater to install signed releases in-app. Updates are delivered from:
 
 ```
-https://github.com/ihtishamshzad7/dadadevourer/releases/latest/download/latest.json
+https://github.com/ihtishamshahzad7/dadadevourer/releases/latest/download/latest.json
 ```
 
 ### One-time signing setup
