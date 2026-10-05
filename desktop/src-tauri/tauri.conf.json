@@ -64,7 +64,7 @@
     "updater": {
       "pubkey": "untrusted comment: minisign public key 4DE8C64B94CEB0AF\nRWSvsM6US8boTd+hZqKe10XtTCoi2HLflKU+SFO44u9glfodeVCIjSw6",
       "endpoints": [
-        "https://github.com/ihtishamshzad7/dadadevourer/releases/latest/download/latest.json"
+        "https://github.com/ihtishamshahzad7/dadadevourer/releases/latest/download/latest.json"
       ],
       "dangerousInsecureTransportProtocol": false,
       "active": true,
