@@ -4,7 +4,7 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse
 import httpx
 
-ALLOWED_PORTS = {80, 443}
+ALLOWED_PORTS = None  # Any explicit TCP port is allowed for an authorized HTTP(S) target.
 REDIRECTS = {301, 302, 303, 307, 308}
 UA = "DadaDevourer/0.3 authorized-assessment"
 
@@ -14,8 +14,6 @@ def validate_target_url(url: str) -> None:
         raise ValueError("Only HTTP(S) targets are allowed")
     if parsed.username or parsed.password:
         raise ValueError("Target URLs must not contain credentials")
-    if parsed.port and parsed.port not in ALLOWED_PORTS:
-        raise ValueError("Only ports 80 and 443 are allowed")
     socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
 
 async def fetch(url: str, *, origin: str | None = None):
