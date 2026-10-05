@@ -164,7 +164,7 @@ jobs:
               platforms = [ordered]@{
                 "windows-x86_64" = [ordered]@{
                   signature = $signature
-                  url = "https://github.com/ihtishamshzad7/dadadevourer/releases/download/$($env:RELEASE_TAG)/DadaDevourer_x64-setup.exe"
+                  url = "https://github.com/ihtishamshahzad7/dadadevourer/releases/download/$($env:RELEASE_TAG)/DadaDevourer_x64-setup.exe"
                 }
               }
             }
