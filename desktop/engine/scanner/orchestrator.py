@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from headers_scanner import (
-    assessment_scan,
-    headers_scan,
-    tech_scan,
-    run as legacy_run,
-    tls_scan,
-)
+from headers_scanner import headers_scan, tech_scan, run as legacy_run, tls_scan
 
-from .models import ScanContext, ScannerCommand
+from .models import ScanContext, ScanProfile, ScannerCommand
+from .xss import scan as xss_scan
 from .registry import ScannerModule, ScannerRegistry
 
 
@@ -30,6 +25,11 @@ async def _technology(target: str, context: ScanContext) -> dict:
 async def _assessment(target: str, context: ScanContext) -> dict:
     context.report("assessment")
     return await legacy_run("assessment_scan", target, context.report)
+
+
+async def _xss(target: str, context: ScanContext) -> dict:
+    context.report("xss")
+    return await xss_scan(target, context)
 
 
 def build_registry() -> ScannerRegistry:
@@ -70,6 +70,15 @@ def build_registry() -> ScannerRegistry:
             _assessment,
         )
     )
+    registry.register(
+        ScannerModule(
+            ScannerCommand.XSS,
+            "Reflected XSS",
+            "Controlled reflected-XSS canary testing for URL query parameters.",
+            "safe_active",
+            _xss,
+        )
+    )
     return registry
 
 
@@ -80,7 +89,13 @@ async def run(command: str, target: str, progress=None, profile: str = "passive"
     """Run a registered scanner without changing the legacy result contract."""
 
     _ = legacy_run
-    context = ScanContext(target=target, progress=progress)
-    context.options["profile"] = profile
+    try:
+        scan_profile = ScanProfile(profile)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported scan profile: {profile}") from exc
+    context = ScanContext(target=target, profile=scan_profile, progress=progress)
+    context.options["profile"] = scan_profile.value
     module = REGISTRY.get(command)
+    if scan_profile.value == "passive" and module.minimum_profile != "passive":
+        raise ValueError(f"{module.name} requires the {module.minimum_profile} assessment profile")
     return await module.handler(target, context)
