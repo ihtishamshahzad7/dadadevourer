@@ -29,7 +29,7 @@ async def _technology(target: str, context: ScanContext) -> dict:
 
 async def _assessment(target: str, context: ScanContext) -> dict:
     context.report("assessment")
-    return await assessment_scan(target)
+    return await legacy_run("assessment_scan", target, context.report)
 
 
 def build_registry() -> ScannerRegistry:
