@@ -288,6 +288,182 @@ async def http_redirect_checks(url, chain):
             findings.append(finding("redirect:http_https_missing","HTTP to HTTPS redirect missing","High","The assessed HTTP target did not redirect to HTTPS.",str(chain),"Redirect sensitive HTTP traffic to HTTPS.","OWASP Transport Layer Protection"))
     return findings
 
+
+
+async def application_layer_checks(base_url: str):
+    """Safe, non-destructive application-layer checks.
+    These checks inspect responses and common public metadata/endpoints only.
+    They do not submit credentials, mutate state, or exploit vulnerabilities.
+    """
+    findings = []
+    parsed = urlparse(base_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+
+    async def probe(path, method="GET", headers=None):
+        try:
+            url = urljoin(base_url, path)
+            validate_target_url(url)
+            timeout = httpx.Timeout(6.0, connect=3.0)
+            async with httpx.AsyncClient(follow_redirects=False, timeout=timeout, headers={"User-Agent": UA, **(headers or {})}) as client:
+                response = await client.request(method, url)
+                return response
+        except Exception:
+            return None
+
+    # HTTP method exposure: OPTIONS is passive and does not change application state.
+    try:
+        response = await probe("", "OPTIONS")
+        if response:
+            allow = response.headers.get("allow", "")
+            if allow:
+                dangerous = [m for m in ("TRACE", "CONNECT") if re.search(r"\b"+m+r"\b", allow, re.I)]
+                if dangerous:
+                    findings.append(finding("application:http_methods", "Potentially risky HTTP methods exposed", "Medium",
+                        "The target advertises HTTP methods that should normally be disabled unless explicitly required.",
+                        allow, "Disable TRACE/CONNECT and other unnecessary methods at the web server or application boundary.", "OWASP WSTG / HTTP Method Testing"))
+                else:
+                    findings.append(informational("application:http_methods", "Allowed HTTP methods detected",
+                        "The server advertises its allowed HTTP methods.", allow, "Review the method allowlist and remove unnecessary methods.", "OWASP WSTG"))
+    except Exception:
+        pass
+
+    response = await probe("")
+    if not response:
+        return findings
+
+    content_type = response.headers.get("content-type", "").lower()
+    body = response.text[:750000] if ("text/" in content_type or "json" in content_type or "javascript" in content_type) else ""
+    lower = body.lower()
+
+    # API/error disclosure and framework debug indicators.
+    debug_patterns = [
+        (r"traceback \(most recent call last\)", "Python traceback"),
+        (r"django(?:\.core| debug)", "Django debug indicator"),
+        (r"werkzeug debugger", "Werkzeug debugger"),
+        (r"express(?:\.js)?\s+error", "Express error detail"),
+        (r"next\.js.*(?:error|stack)", "Next.js error detail"),
+        (r"laravel.*exception", "Laravel exception detail"),
+        (r"spring boot.*whitelabel", "Spring Boot error page"),
+        (r"sqlstate\[[0-9a-z]+\]|mysql server version|postgresql.*error|sqlite error", "Database error detail"),
+    ]
+    for pattern, label in debug_patterns:
+        if re.search(pattern, body, re.I):
+            findings.append(finding("application:error_disclosure", "Application error/debug details exposed", "High",
+                "The response contains a recognizable framework, stack-trace, or database error indicator.",
+                label, "Disable production debug pages and return generic error responses while keeping diagnostics server-side.", "OWASP WSTG / Error Handling"))
+            break
+
+    # Sensitive client-side data exposure.
+    secret_patterns = [
+        (r"(?i)(?:api[_-]?key|secret|access[_-]?token|private[_-]?key)\s*[:=]\s*["'][^"']{12,}["']", "Potential client-side secret"),
+        (r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", "Private key material"),
+    ]
+    for pattern, label in secret_patterns:
+        if re.search(pattern, body):
+            findings.append(finding("application:client_secret_exposure", "Potential secret exposed in application response", "Critical",
+                "A high-confidence secret/key pattern was detected in publicly returned content. This is a detection signal and should be manually verified.",
+                label, "Remove secrets from client-delivered content, rotate exposed credentials, and use server-side secret storage.", "OWASP Secrets Management"))
+            break
+
+    # Source-map exposure.
+    scripts = re.findall(r"<script\b[^>]+src=["']([^"']+\.js)(?:\?[^"']*)?["']", body, re.I)
+    for src in scripts[:30]:
+        if src.startswith("http://") or src.startswith("https://"):
+            js_url = src
+        else:
+            js_url = urljoin(str(response.url), src)
+        try:
+            sm = await probe(urlparse(js_url).path + ".map")
+            if sm and sm.status_code == 200 and sm.text[:20].strip():
+                findings.append(finding("application:source_map", "JavaScript source map publicly exposed", "Medium",
+                    "A JavaScript source map was reachable from a public script reference.",
+                    js_url + ".map", "Do not publish production source maps unless their exposure is intentional and acceptable; otherwise remove or restrict them.", "OWASP WSTG / Information Exposure"))
+                break
+        except Exception:
+            pass
+
+    # Common sensitive files/directories. GET only; no brute force.
+    probes = [
+        ("/.env", "Environment configuration file"),
+        ("/.git/HEAD", "Git repository metadata"),
+        ("/server-status", "Apache server-status"),
+        ("/phpinfo.php", "PHP information page"),
+        ("/actuator", "Spring Actuator endpoint"),
+        ("/actuator/env", "Spring environment endpoint"),
+        ("/swagger.json", "Swagger/OpenAPI document"),
+        ("/openapi.json", "OpenAPI document"),
+        ("/api-docs", "API documentation endpoint"),
+    ]
+    for path, label in probes:
+        r = await probe(path)
+        if not r or r.status_code != 200:
+            continue
+        text_body = r.text[:100000]
+        if len(text_body.strip()) < 10:
+            continue
+        severity = "Critical" if path in {"/.env", "/.git/HEAD", "/actuator/env"} else "High" if path in {"/server-status", "/phpinfo.php"} else "Medium"
+        findings.append(finding("application:exposed_resource", f"Potentially sensitive resource exposed: {path}", severity,
+            f"The endpoint {path} returned HTTP 200 and appears reachable without additional access control.",
+            text_body[:500], f"Remove or protect {label} in production and verify that sensitive configuration or operational data is not publicly accessible.", "OWASP WSTG / Information Gathering"))
+
+    # Authentication/session indicators.
+    cookies = parse_set_cookie(response.headers)
+    for name, attrs, raw in cookies:
+        if looks_like_session(name):
+            if parsed.scheme == "http" and "secure" not in attrs:
+                findings.append(finding("application:session_over_http", "Session-like cookie delivered over HTTP", "High",
+                    "A session/authentication cookie was observed while the target was accessed over HTTP.",
+                    name, "Serve authentication and session traffic only over HTTPS and set Secure on session cookies.", "OWASP Session Management"))
+            if "samesite" in attrs and str(attrs["samesite"]).lower() == "none" and "secure" not in attrs:
+                findings.append(finding("application:samesite_none_insecure", "SameSite=None cookie missing Secure", "High",
+                    "A session-like cookie uses SameSite=None without Secure.", raw[:500], "Add Secure when using SameSite=None and serve the application over HTTPS.", "MDN Cookie Security"))
+
+    # Form/action security posture.
+    forms = re.findall(r"<form\b([^>]*)>(.*?)</form\s*>", body, re.I | re.S)
+    password_forms = 0
+    for attrs, form_body in forms[:50]:
+        if re.search(r"type\s*=\s*["']?password", form_body, re.I):
+            password_forms += 1
+            action = re.search(r"action\s*=\s*["']([^"']*)", attrs, re.I)
+            action_url = urljoin(str(response.url), action.group(1)) if action else str(response.url)
+            if parsed.scheme == "https" and action_url.lower().startswith("http://"):
+                findings.append(finding("application:insecure_form_action", "Password form submits over HTTP", "Critical",
+                    "A password-bearing form on an HTTPS page points to an HTTP action.",
+                    action_url, "Submit credentials only to an HTTPS endpoint.", "OWASP Authentication"))
+    if password_forms and parsed.scheme == "http":
+        findings.append(finding("application:password_over_http", "Password form served over HTTP", "Critical",
+            "A page containing a password field was retrieved over HTTP.",
+            str(response.url), "Use HTTPS for login and authentication pages and redirect HTTP to HTTPS.", "OWASP Transport Layer Protection"))
+
+    # CORS preflight posture for APIs.
+    try:
+        preflight = await probe("", "OPTIONS", {"Origin": "https://evil.example.com", "Access-Control-Request-Method": "GET"})
+        if preflight:
+            acao = preflight.headers.get("access-control-allow-origin", "")
+            acac = preflight.headers.get("access-control-allow-credentials", "").lower()
+            if acao == "https://evil.example.com":
+                sev = "Critical" if acac == "true" else "High"
+                findings.append(finding("application:cors_preflight_reflection", "CORS reflects an untrusted origin", sev,
+                    "The CORS preflight response accepted the assessment origin.",
+                    f"Access-Control-Allow-Origin: {acao}; Access-Control-Allow-Credentials: {acac or 'false'}",
+                    "Allow only explicitly trusted origins and review credentialed cross-origin access.", "OWASP WSTG / CORS"))
+    except Exception:
+        pass
+
+    # Security.txt/contact metadata is useful for defensive operations.
+    security = await probe("/.well-known/security.txt")
+    if security and security.status_code == 200:
+        findings.append(informational("application:security_txt", "security.txt is published",
+            "A security.txt policy is available for coordinated disclosure.", str(security.url),
+            "Keep the contact and policy information current.", "RFC 9116"))
+    else:
+        findings.append(informational("application:security_txt_missing", "security.txt not detected",
+            "No /.well-known/security.txt response was detected.", str(urljoin(base_url, "/.well-known/security.txt")),
+            "Consider publishing security.txt if the project supports coordinated vulnerability disclosure.", "RFC 9116"))
+
+    return findings
+
+
 async def headers_scan(url: str) -> dict:
     started=asyncio.get_running_loop().time()
     response,chain=await fetch(url)
@@ -296,6 +472,7 @@ async def headers_scan(url: str) -> dict:
     findings.extend(await http_redirect_checks(url,chain))
     findings.extend(await cors_check(str(response.url)))
     findings.extend(await common_content_checks(str(response.url),body))
+    findings.extend(await application_layer_checks(str(response.url)))
     return finalize_result(str(response.url),response.status_code,chain,findings,started,["headers"])
 
 def cert_days_left(not_after):
