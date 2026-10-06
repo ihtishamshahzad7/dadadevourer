@@ -18,6 +18,7 @@ class ScannerCommand(str, Enum):
     TLS = "tls_scan"
     TECHNOLOGY = "tech_scan"
     ASSESSMENT = "assessment_scan"
+    XSS = "xss_scan"
 
 
 ProgressCallback = Callable[[str], None]
