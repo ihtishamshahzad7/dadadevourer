@@ -8,6 +8,7 @@ ALLOWED_COMMANDS = {
     "tls_scan",
     "tech_scan",
     "assessment_scan",
+    "xss_scan",
 }
 
 
