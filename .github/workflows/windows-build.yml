@@ -53,18 +53,16 @@ jobs:
           $package | ConvertTo-Json -Depth 20 | Set-Content desktop/package.json
           $config = Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
           $config.version = $version
-          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-            $config.bundle.createUpdaterArtifacts = $true
-            "SIGNED_BUILD=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "signed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host "Signed updater artifacts enabled."
-          } else {
-            $config.bundle.createUpdaterArtifacts = $false
-            $config.plugins.updater.pubkey = ""
-            "SIGNED_BUILD=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            "signed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Host "Signing secrets are not configured; building installers without updater artifacts."
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Updater signing is required. Configure TAURI_SIGNING_PRIVATE_KEY (or TAURI_PRIVATE_KEY) in GitHub Actions secrets."
           }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
+            throw "Updater signing password is required. Configure TAURI_SIGNING_PRIVATE_KEY_PASSWORD (or TAURI_KEY_PASSWORD) in GitHub Actions secrets."
+          }
+          $config.bundle.createUpdaterArtifacts = $true
+          "SIGNED_BUILD=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "signed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Signed updater artifacts enabled."
           $config | ConvertTo-Json -Depth 20 | Set-Content desktop/src-tauri/tauri.conf.json
       - name: Install scanner dependencies
         working-directory: desktop/engine
