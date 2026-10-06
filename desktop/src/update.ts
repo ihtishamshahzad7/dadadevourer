@@ -1,6 +1,4 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-
 export type UpdateProgress =
   | { event: "Started"; contentLength: number | null }
   | { event: "Progress"; downloaded: number; contentLength: number | null }
@@ -68,8 +66,4 @@ export async function installUpdate() {
 
   await pendingUpdate.install({ restartAfterInstall: true });
   pendingUpdate = null;
-
-  // Windows exits when the installer is launched. On platforms that do not,
-  // explicitly relaunch so the newly installed version becomes active.
-  await relaunch();
 }
