@@ -158,7 +158,7 @@ jobs:
 
             $signature = (Get-Content $nsisSig.FullName -Raw).Trim()
             $manifest = [ordered]@{
-              version = $env:RELEASE_TAG
+              version = $env:RELEASE_TAG.TrimStart("v")
               notes = "See release notes on GitHub"
               pub_date = (Get-Date).ToUniversalTime().ToString("o")
               platforms = [ordered]@{
