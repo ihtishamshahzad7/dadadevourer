@@ -4,7 +4,7 @@ export type ScannerFinding = {
   check: string; title?: string; severity: string; status: string;
   description?: string; evidence?: string; recommendation?: string; reference?: string; value?: string;
 };
-export type ScanModule = "headers" | "tls" | "technology" | "assessment";
+export type ScanModule = "headers" | "tls" | "technology" | "assessment" | "xss";
 export type ScanProgress = { module: string; stage: string };
 export type ScanResult = {
   url: string; status_code?: number; redirect_chain?: Array<{url:string;status_code:number}>;
@@ -29,7 +29,7 @@ export async function runScan(
   onProgress?: (progress:ScanProgress)=>void,
 ):Promise<ScanResult>{
   const id=crypto.randomUUID(); const command=Command.sidecar(SIDE_CAR); let settled=false; let buffer="";
-  const commandName=module==="headers"?"headers_scan":module==="tls"?"tls_scan":module==="technology"?"tech_scan":"assessment_scan";
+  const commandName=module==="headers"?"headers_scan":module==="tls"?"tls_scan":module==="technology"?"tech_scan":module==="xss"?"xss_scan":"assessment_scan";
   return new Promise<ScanResult>(async(resolve,reject)=>{
     let child:{kill:()=>Promise<void>;write:(data:string)=>Promise<void>}|undefined;
     const cleanup=()=>{activeChildren.delete(id);window.clearTimeout(timer)};
@@ -40,7 +40,7 @@ export async function runScan(
     command.stderr.on("data",(chunk)=>console.warn("DadaDevourer scanner:",String(chunk)));
     command.on("error",(error)=>finishError(new Error(String(error))));
     command.on("close",({code,signal})=>{if(!settled)finishError(new Error(`Scanner exited before returning a result (code=${code??"unknown"}, signal=${signal??"none"})`))});
-    try{child=await command.spawn();activeChildren.set(id,child);onProgress?.({module,stage:"starting"});await child.write(JSON.stringify({id,command:commandName,target})+"\n")}catch(e){finishError(e instanceof Error?e:new Error(String(e)))}
+    try{child=await command.spawn();activeChildren.set(id,child);onProgress?.({module,stage:"starting"});const profile=module==="xss"?"safe_active":"passive";await child.write(JSON.stringify({id,command:commandName,target,profile})+"\n")}catch(e){finishError(e instanceof Error?e:new Error(String(e)))}
   });
 }
 
