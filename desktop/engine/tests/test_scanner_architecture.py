@@ -14,6 +14,7 @@ class ScannerArchitectureTests(unittest.TestCase):
                 ScannerCommand.TLS,
                 ScannerCommand.TECHNOLOGY,
                 ScannerCommand.ASSESSMENT,
+                ScannerCommand.XSS,
             },
         )
 
