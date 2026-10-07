@@ -94,7 +94,7 @@ def _reflection_context(body: str, marker: str) -> str:
     window = body[max(0, index - 1000): index + len(marker) + 1000]
     if re.search(r"<script\\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
         return "javascript"
-    if re.search(r"<[^>]*\\bon[a-z]+\\s*=|<[^>]*(?:href|src|action|formaction)\\s*=", window, re.I) and re.search(re.escape(marker), window):
+    if re.search(r"<[a-z][^>]*\\s+[a-z_:][-a-z0-9_:.]*\\s*=\\s*[^>]*" + re.escape(marker), window, re.I | re.S):
         return "attribute"
     if re.search(r"<style\\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
         return "css"
