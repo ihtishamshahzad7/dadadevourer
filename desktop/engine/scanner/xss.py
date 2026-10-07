@@ -33,7 +33,7 @@ SINK_PATTERNS = {
     "setTimeout": r"\bsetTimeout\s*\(",
     "setInterval": r"\bsetInterval\s*\(",
     "location": r"\b(?:window\.)?location\.(?:href|assign|replace)\s*=",
-    "javascript URL": r"[\"\']javascript:\\s*",
+    "javascript URL": r"[\"\']javascript:\s*",
     "dangerous setAttribute": r"\bsetAttribute\s*\(\s*[\"\'](?:on[a-z]+|src|href|action|formaction|style)[\"\']",
 }
 
@@ -92,11 +92,11 @@ def _reflection_context(body: str, marker: str) -> str:
     if index < 0:
         return "none"
     window = body[max(0, index - 1000): index + len(marker) + 1000]
-    if re.search(r"<script\\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
+    if re.search(r"<script\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
         return "javascript"
-    if re.search(r"<[a-z][^>]*\\s+[a-z_:][-a-z0-9_:.]*\\s*=\\s*[^>]*" + re.escape(marker), window, re.I | re.S):
+    if re.search(r"<[a-z][^>]*\s+[a-z_:][-a-z0-9_:.]*\s*=\s*[^>]*" + re.escape(marker), window, re.I | re.S):
         return "attribute"
-    if re.search(r"<style\\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
+    if re.search(r"<style\b[^>]*>[^<]{0,1000}" + re.escape(marker), window, re.I | re.S):
         return "css"
     if re.search(r"<!--[^>]{0,1000}" + re.escape(marker), window, re.I | re.S):
         return "comment"
@@ -185,8 +185,8 @@ async def _form_probes(target: str, findings: list, deep: bool):
             ))
 
 async def _dom_analysis(target: str, html: str, findings: list):
-    scripts = re.findall(r"<script\\b[^>]*\\bsrc=[\\\"']([^\\\"']+)[\\\"'][^>]*>", html, re.I)[:20]
-    inline = re.findall(r"<script\\b[^>]*>(.*?)</script>", html, re.I | re.S)
+    scripts = re.findall(r"<script\b[^>]*\bsrc=[\\\"']([^\\\"']+)[\\\"'][^>]*>", html, re.I)[:20]
+    inline = re.findall(r"<script\b[^>]*>(.*?)</script>", html, re.I | re.S)
     sources = [name for name, pattern in SOURCE_PATTERNS.items() if re.search(pattern, html, re.I | re.S)]
     scripts_data: list[tuple[str, str]] = [(str(target), s) for s in inline]
     for src in scripts:
@@ -218,7 +218,7 @@ async def _dom_analysis(target: str, html: str, findings: list):
                 "Review data flow into the sink; prefer textContent/safe DOM APIs and avoid eval-like execution.",
                 "OWASP DOM XSS",
             ))
-    if re.search(r"require-trusted-types-for\\s+[\"']script[\"']", html, re.I):
+    if re.search(r"require-trusted-types-for\s+[\"']script[\"']", html, re.I):
         findings.append(finding("xss:control:trusted-types", "Trusted Types enforcement detected", "Info", "The page advertises Trusted Types enforcement for script sinks.", "Content-Security-Policy", "Keep Trusted Types policies narrowly scoped and audited.", "OWASP XSS Prevention"))
     else:
         findings.append(finding("xss:control:trusted-types-missing", "Trusted Types enforcement not detected", "Info", "Trusted Types was not detected. This is a defense-in-depth observation, not proof of XSS.", None, "Consider require-trusted-types-for 'script' for applications with meaningful DOM XSS risk.", "OWASP XSS Prevention"))
@@ -227,9 +227,9 @@ def _browser_executable() -> str | None:
     import os
     import shutil
     candidates = [shutil.which("msedge"), shutil.which("chrome"),
-        os.environ.get("PROGRAMFILES", "") + r"\\Microsoft\\Edge\\Application\\msedge.exe",
+        os.environ.get("PROGRAMFILES", "") + r"\Microsoft\Edge\Application\msedge.exe",
         os.environ.get("PROGRAMFILES(X86)", "") + r"\\Microsoft\\Edge\\Application\\msedge.exe",
-        os.environ.get("LOCALAPPDATA", "") + r"\\Google\\Chrome\\Application\\chrome.exe",
+        os.environ.get("LOCALAPPDATA", "") + r"\Google\Chrome\Application\chrome.exe",
         os.environ.get("PROGRAMFILES", "") + r"\\Google\\Chrome\\Application\\chrome.exe"]
     for path in candidates:
         if path:
