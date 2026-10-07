@@ -5,6 +5,7 @@ export type ScannerFinding = {
   description?: string; evidence?: string; recommendation?: string; reference?: string; value?: string;
 };
 export type ScanModule = "headers" | "tls" | "technology" | "assessment" | "xss";
+export type ScanProfile = "passive" | "safe_active" | "deep";
 export type ScanProgress = { module: string; stage: string };
 export type ScanResult = {
   url: string; status_code?: number; redirect_chain?: Array<{url:string;status_code:number}>;
@@ -27,6 +28,7 @@ export async function runScan(
   module:ScanModule="assessment",
   timeoutMs=75000,
   onProgress?: (progress:ScanProgress)=>void,
+  profile?: ScanProfile,
 ):Promise<ScanResult>{
   const id=crypto.randomUUID(); const command=Command.sidecar(SIDE_CAR); let settled=false; let buffer="";
   const commandName=module==="headers"?"headers_scan":module==="tls"?"tls_scan":module==="technology"?"tech_scan":module==="xss"?"xss_scan":"assessment_scan";
@@ -40,7 +42,7 @@ export async function runScan(
     command.stderr.on("data",(chunk)=>console.warn("DadaDevourer scanner:",String(chunk)));
     command.on("error",(error)=>finishError(new Error(String(error))));
     command.on("close",({code,signal})=>{if(!settled)finishError(new Error(`Scanner exited before returning a result (code=${code??"unknown"}, signal=${signal??"none"})`))});
-    try{child=await command.spawn();activeChildren.set(id,child);onProgress?.({module,stage:"starting"});const profile=module==="xss"?"safe_active":"passive";await child.write(JSON.stringify({id,command:commandName,target,profile})+"\n")}catch(e){finishError(e instanceof Error?e:new Error(String(e)))}
+    try{child=await command.spawn();activeChildren.set(id,child);onProgress?.({module,stage:"starting"});const selectedProfile=profile||(module==="xss"?"safe_active":"passive");await child.write(JSON.stringify({id,command:commandName,target,profile:selectedProfile})+"\n")}catch(e){finishError(e instanceof Error?e:new Error(String(e)))}
   });
 }
 
