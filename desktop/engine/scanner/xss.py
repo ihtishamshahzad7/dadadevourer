@@ -39,7 +39,7 @@ SINK_PATTERNS = {
     "setTimeout": r"\bsetTimeout\s*\(",
     "setInterval": r"\bsetInterval\s*\(",
     "location": r"\b(?:window\.)?location\.(?:href|assign|replace)\s*=",
-    "javascript URL": r"[\"\']javascript:\\s*",
+    "javascript URL": r"[\"\']javascript:\s*",
     "dangerous setAttribute": r"\bsetAttribute\s*\(\s*[\"\'](?:on[a-z]+|src|href|action|formaction|style|srcdoc)[\"\']",
 }
 
