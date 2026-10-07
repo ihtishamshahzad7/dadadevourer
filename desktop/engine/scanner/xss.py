@@ -22,7 +22,7 @@ SOURCE_PATTERNS = {
     "location": r"\b(?:window\.)?(?:location(?:\.(?:search|hash|href|pathname))?|document\.URL|document\.documentURI|document\.referrer)\b",
     "storage": r"\b(?:localStorage|sessionStorage)\b",
     "cookie": r"\bdocument\.cookie\b",
-    "message": r'\b(?:event\.)?data\b.*(?:addEventListener\s*\(\s*["']message|onmessage)',
+    "message": r"\b(?:event\.)?data\b.*(?:addEventListener\s*\(\s*[\"\']message|onmessage)",
 }
 SINK_PATTERNS = {
     "innerHTML": r"\b(?:innerHTML|outerHTML)\s*=",
@@ -33,8 +33,8 @@ SINK_PATTERNS = {
     "setTimeout": r"\bsetTimeout\s*\(",
     "setInterval": r"\bsetInterval\s*\(",
     "location": r"\b(?:window\.)?location\.(?:href|assign|replace)\s*=",
-    "javascript URL": r'["']javascript:\\s*',
-    "dangerous setAttribute": r'\bsetAttribute\s*\(\s*["'](?:on[a-z]+|src|href|action|formaction|style)["']',
+    "javascript URL": r"[\"\']javascript:\\s*",
+    "dangerous setAttribute": r"\bsetAttribute\s*\(\s*[\"\'](?:on[a-z]+|src|href|action|formaction|style)[\"\']",
 }
 
 class _FormParser(HTMLParser):
