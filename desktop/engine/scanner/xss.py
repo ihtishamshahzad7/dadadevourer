@@ -19,22 +19,28 @@ MAX_SCRIPT_BYTES = 400_000
 CANARY_PREFIX = "DADA_XSS_PROBE_"
 
 SOURCE_PATTERNS = {
-    "location": r"\b(?:window\.)?(?:location(?:\.(?:search|hash|href|pathname))?|document\.URL|document\.documentURI|document\.referrer)\b",
-    "storage": r"\b(?:localStorage|sessionStorage)\b",
+    "location": r"\b(?:window\.)?(?:location(?:\.(?:search|hash|href|pathname))?|document\.URL|document\.documentURI|document\.baseURI|document\.referrer|window\.name)\b",
+    "storage": r"\b(?:localStorage|sessionStorage|indexedDB)\b",
     "cookie": r"\bdocument\.cookie\b",
+    "history": r"\b(?:history\.state|history\.pushState|history\.replaceState)\b",
     "message": r"\b(?:event\.)?data\b.*(?:addEventListener\s*\(\s*[\"\']message|onmessage)",
+    "url_parameters": r"\b(?:URLSearchParams|location\.search|location\.hash)\b",
 }
 SINK_PATTERNS = {
     "innerHTML": r"\b(?:innerHTML|outerHTML)\s*=",
     "document.write": r"\bdocument\.write(?:ln)?\s*\(",
     "insertAdjacentHTML": r"\binsertAdjacentHTML\s*\(",
+    "DOMParser": r"\bDOMParser\s*\(\).*\.parseFromString\s*\(",
+    "createContextualFragment": r"\bcreateContextualFragment\s*\(",
+    "setHTMLUnsafe": r"\.(?:setHTMLUnsafe|setHTML)\s*\(",
+    "srcdoc": r"\bsrcdoc\s*=",
     "eval": r"\beval\s*\(",
     "Function": r"\bFunction\s*\(",
     "setTimeout": r"\bsetTimeout\s*\(",
     "setInterval": r"\bsetInterval\s*\(",
     "location": r"\b(?:window\.)?location\.(?:href|assign|replace)\s*=",
-    "javascript URL": r"[\"\']javascript:\s*",
-    "dangerous setAttribute": r"\bsetAttribute\s*\(\s*[\"\'](?:on[a-z]+|src|href|action|formaction|style)[\"\']",
+    "javascript URL": r"[\"\']javascript:\\s*",
+    "dangerous setAttribute": r"\bsetAttribute\s*\(\s*[\"\'](?:on[a-z]+|src|href|action|formaction|style|srcdoc)[\"\']",
 }
 
 class _FormParser(HTMLParser):
