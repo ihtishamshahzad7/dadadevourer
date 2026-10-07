@@ -223,25 +223,52 @@ async def _dom_analysis(target: str, html: str, findings: list):
     else:
         findings.append(finding("xss:control:trusted-types-missing", "Trusted Types enforcement not detected", "Info", "Trusted Types was not detected. This is a defense-in-depth observation, not proof of XSS.", None, "Consider require-trusted-types-for 'script' for applications with meaningful DOM XSS risk.", "OWASP XSS Prevention"))
 
+def _browser_executable() -> str | None:
+    import os
+    import shutil
+    candidates = [shutil.which("msedge"), shutil.which("chrome"),
+        os.environ.get("PROGRAMFILES", "") + r"\\Microsoft\\Edge\\Application\\msedge.exe",
+        os.environ.get("PROGRAMFILES(X86)", "") + r"\\Microsoft\\Edge\\Application\\msedge.exe",
+        os.environ.get("LOCALAPPDATA", "") + r"\\Google\\Chrome\\Application\\chrome.exe",
+        os.environ.get("PROGRAMFILES", "") + r"\\Google\\Chrome\\Application\\chrome.exe"]
+    for path in candidates:
+        if path:
+            try:
+                if os.path.isfile(path): return path
+            except OSError: pass
+    return None
+
 async def _browser_confirm(target: str, findings: list):
     try:
         from playwright.async_api import async_playwright
     except Exception:
-        findings.append(finding("xss:browser:unavailable", "Browser confirmation unavailable", "Info", "Playwright is not available in this scanner build, so browser execution confirmation was skipped.", None, "Install the bundled browser-capable scanner build to enable dynamic XSS confirmation.", "DadaDevourer"))
+        findings.append(finding("xss:browser:unavailable", "Browser confirmation unavailable", "Info", "Playwright is not available in this scanner build, so browser execution confirmation was skipped.", None, "Use a scanner build containing Playwright and a supported Chromium browser.", "DadaDevourer"))
         return
+    parameter_names = _parameter_names(target)
     marker = f"{CANARY_PREFIX}{uuid.uuid4().hex[:12]}"
-    payload = f"<img src=x onerror=window.__DADA_XSS_PROBE__='{marker}'>"
+    html_payload = f"<img src=x onerror=window.__DADA_XSS_PROBE__='{marker}'>"
+    executable = _browser_executable()
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(_replace_query_parameter(target, _parameter_names(target)[0], payload) if _parameter_names(target) else target, wait_until="domcontentloaded", timeout=15000)
-            value = await page.evaluate("window.__DADA_XSS_PROBE__ || null")
-            if value == marker:
-                findings.append(finding("xss:browser:confirmed", "Reflected XSS confirmed by browser execution", "High", "A controlled, non-exfiltrating probe executed in a real browser context.", json.dumps({"marker": marker, "url": page.url}), "Fix the vulnerable output context and retest with browser confirmation.", "CWE-79 / OWASP A03"))
+            launch_args = {"headless": True}
+            if executable: launch_args["executable_path"] = executable
+            browser = await p.chromium.launch(**launch_args)
+            page = await browser.new_page(); confirmed = False
+            for parameter in parameter_names:
+                await page.goto(_replace_query_parameter(target, parameter, html_payload), wait_until="domcontentloaded", timeout=15000)
+                if await page.evaluate("window.__DADA_XSS_PROBE__ || null") == marker:
+                    findings.append(finding("xss:browser:confirmed", "Reflected XSS confirmed by browser execution", "High", "A controlled, non-exfiltrating XSS probe executed in a real Chromium-family browser.", json.dumps({"marker": marker, "parameter": parameter, "url": page.url, "browser": executable or "playwright chromium"}), "Fix the vulnerable output context and retest with browser confirmation.", "CWE-79 / OWASP A03"))
+                    confirmed = True; break
+            if not confirmed:
+                dom_marker = f"{CANARY_PREFIX}{uuid.uuid4().hex[:12]}"
+                await page.goto(target, wait_until="domcontentloaded", timeout=15000)
+                await page.evaluate("(value) => { location.hash = value; }", dom_marker)
+                await page.wait_for_timeout(250)
+                if await page.evaluate("window.__DADA_XSS_PROBE__ || null") == dom_marker:
+                    findings.append(finding("xss:dom:browser-confirmed", "DOM XSS confirmed by browser execution", "High", "A controlled fragment canary reached an executable DOM sink in a real browser context.", json.dumps({"marker": dom_marker, "url": page.url, "browser": executable or "playwright chromium"}), "Trace the fragment source to the DOM sink and replace the unsafe sink with a safe DOM API or appropriate sanitization.", "CWE-79 / OWASP DOM XSS"))
             await browser.close()
     except Exception as exc:
-        findings.append(finding("xss:browser:error", "Browser XSS confirmation could not complete", "Info", "The browser-based confirmation step could not complete safely.", str(exc), "Review browser availability and target behavior, then rerun the authorized assessment.", "DadaDevourer"))
+        findings.append(finding("xss:browser:error", "Browser XSS confirmation could not complete", "Info", "The browser-based confirmation step could not complete; no confirmed XSS was recorded from this step.", str(exc), "Verify that Microsoft Edge/Chrome is installed or provide a compatible Playwright Chromium runtime, then rerun.", "DadaDevourer"))
 
 async def scan(target: str, context: ScanContext) -> dict:
     started = asyncio.get_running_loop().time()
